@@ -6,12 +6,27 @@ EyeTube Control is a privacy-first Google Chrome extension (Manifest V3) that al
 
 ## 1. Key Features
 
-- **Hands-Free YouTube Playback:**
+- **Hands-Free YouTube Playback** (hold durations are adjustable in the popup):
   - **Both eyes closed (700 ms):** Play / Pause video.
-  - **Right eye wink (700 ms):** Next video (playlist/queue).
-  - **Left eye wink (700 ms):** Previous video (playlist/queue).
-  - **Look up (2,000 ms):** Like current video (idempotent, never unlikes).
-  - **Look down (2,000 ms):** Subscribe to channel (idempotent, never unsubscribes).
+  - **Right eye wink (400 ms):** Next video -- the first entry in the right-hand
+    column, falling back to the player's next button when a playlist is running.
+  - **Left eye wink (400 ms):** Previous video -- one step back through history.
+  - **Look up (1,200 ms):** Like current video (idempotent, never unlikes).
+
+  The mapping matches effort and risk to the action: the gesture everyone can perform
+  carries the most-used, self-correcting command, while the account-touching one needs the
+  most deliberate gesture. Play / pause is held for 700 ms so a natural blink (100-400 ms)
+  cannot trigger it. Looking down is deliberately not a gesture and subscribing is not eye
+  controlled at all -- subtitles sit at the bottom of the frame, so reading them would fire
+  a command on every line.
+- **Light on the machine:**
+  - Inference drops to ~7 fps once the face settles and jumps to ~20 fps the moment a
+    gesture starts, roughly halving CPU against a fixed-rate loop.
+  - The preview tile is encoded at half resolution and 15 fps; inference still runs on
+    the full-resolution stream.
+  - Only the SIMD WebAssembly runtime is packaged (Chrome 116+ always has SIMD), which
+    is why the build is ~16 MB rather than ~40 MB.
+
 - **100% Local & Private Processing:**
   - MediaPipe Face Landmarker model runs strictly client-side via bundled WebAssembly.
   - No camera frames, landmarks, biometric templates, or video viewing history leave your machine.
@@ -19,7 +34,9 @@ EyeTube Control is a privacy-first Google Chrome extension (Manifest V3) that al
 - **Floating Accessible Overlay:**
   - Draggable, resizable, minimizable camera tile mounted inside an isolated closed Shadow DOM.
   - Clear text and icon indicators (accessible contrast, screen-reader friendly `role="status"`).
-  - High-precision cooldown (1,500 ms) and neutral-eye re-arming prevents accidental activations.
+  - Cooldown (800 ms) plus neutral-eye re-arming prevents accidental activations.
+  - Live detection telemetry is logged to the YouTube tab console and shown on the tile, so a
+    rejected frame always says why (face too small, room too dark, head turned away).
 
 ---
 
@@ -42,13 +59,13 @@ EyeTube Control is a privacy-first Google Chrome extension (Manifest V3) that al
    ```bash
    npm run build
    ```
-   The compiled unpacked extension is generated in `.output/chrome-mv3`.
+   The compiled unpacked extension is generated in `output/chrome-mv3`.
 
 3. **Load into Chrome:**
    - Navigate to `chrome://extensions` in Google Chrome.
    - Enable **Developer mode** (top-right switch).
    - Click **Load unpacked** and select the folder:
-     `.../Tool dev/EyeTube Control/.output/chrome-mv3`
+     `.../Tool dev/EyeTube Control/output/chrome-mv3`
 
 4. **Usage:**
    - Open any video on [YouTube](https://www.youtube.com).
@@ -76,6 +93,13 @@ EyeTube Control is a privacy-first Google Chrome extension (Manifest V3) that al
   ```bash
   npm run dev
   ```
+
+- **Diagnosing "it starts but no gesture fires":**
+  Open the YouTube tab's DevTools console and look for the `[EyeTube AI] 🔬` lines. They report the
+  gesture-machine state, the classification, the reason detection is being rejected, and the raw
+  metrics (`size` = share of the frame the face covers, `light` = frame brightness, `L`/`R` = per-eye
+  blink scores, `gaze` = vertical gaze). A wink needs `L` or `R` above 0.50 while the other eye stays
+  below 0.40.
 
 ---
 

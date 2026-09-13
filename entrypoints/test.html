@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EyeTube Control — Kiểm tra AI</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        padding: 24px 16px 48px;
+        background: #0f172a;
+        color: #f8fafc;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      .wrap { max-width: 960px; margin: 0 auto; }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      .sub { color: #94a3b8; font-size: 13px; margin: 0 0 20px; }
+      .grid { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(280px, 1fr); gap: 16px; align-items: start; }
+      @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+      .card { background: #1e293b; border: 1px solid #334155; border-radius: 14px; padding: 16px; }
+      .stage { position: relative; background: #000; border-radius: 10px; overflow: hidden; aspect-ratio: 4 / 3; }
+      video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+      canvas { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); pointer-events: none; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+      button {
+        background: #2563eb; color: #fff; border: 0; border-radius: 8px;
+        padding: 11px 18px; font-size: 14px; font-weight: 600; cursor: pointer; min-height: 44px;
+      }
+      button.secondary { background: #334155; }
+      button.danger { background: #b91c1c; }
+      button:disabled { opacity: 0.5; cursor: not-allowed; }
+      select { background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 8px; padding: 10px; min-height: 44px; }
+      .verdict { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; background: #0b1220; border: 1px solid #334155; }
+      .verdict .dot { width: 12px; height: 12px; border-radius: 50%; background: #64748b; flex: 0 0 auto; }
+      .verdict.ok .dot { background: #22c55e; }
+      .verdict.warn .dot { background: #f59e0b; }
+      .verdict.bad .dot { background: #ef4444; }
+      .verdict-main { font-size: 15px; font-weight: 700; }
+      .verdict-sub { font-size: 12px; color: #94a3b8; }
+      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; margin: 18px 0 10px; }
+      .meter { margin-bottom: 12px; }
+      .meter-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+      .meter-head b { font-variant-numeric: tabular-nums; }
+      .track { position: relative; height: 10px; border-radius: 999px; background: #0b1220; border: 1px solid #334155; overflow: hidden; }
+      .fill { height: 100%; width: 0%; background: #38bdf8; transition: width 80ms linear; }
+      .fill.pass { background: #22c55e; }
+      .mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #f8fafc; opacity: 0.65; }
+      .hold { height: 8px; border-radius: 999px; background: #0b1220; border: 1px solid #334155; overflow: hidden; margin-top: 6px; }
+      .hold-fill { height: 100%; width: 0%; background: #60a5fa; }
+      ul { list-style: none; margin: 0; padding: 0; max-height: 190px; overflow-y: auto; }
+      li { font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #cbd5e1; border-bottom: 1px solid #1e293b; padding: 4px 2px; }
+      li.fire { color: #4ade80; font-weight: 700; }
+      .raw { font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; color: #94a3b8; word-break: break-all; margin-top: 10px; }
+      .note { font-size: 12px; color: #64748b; margin-top: 12px; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Kiểm tra AI nhận diện mắt</h1>
+      <p class="sub">
+        Trang này chạy đúng mô hình MediaPipe và đúng bộ phân loại mà EyeTube Control dùng, nhưng không
+        điều khiển YouTube. Dùng để xem AI có thấy mặt và đọc được cử chỉ của bạn không.
+      </p>
+
+      <div class="grid">
+        <div class="card">
+          <div class="stage">
+            <video id="preview" autoplay muted playsinline></video>
+            <canvas id="hud"></canvas>
+          </div>
+          <div class="row">
+            <button id="start" type="button">Bật camera</button>
+            <button id="stop" type="button" class="danger" disabled>Tắt camera</button>
+            <select id="device" aria-label="Chọn camera"></select>
+          </div>
+          <div class="row">
+            <button id="copy" type="button" class="secondary">Sao chép chẩn đoán</button>
+          </div>
+          <p class="note" id="note">Nhấn “Bật camera” và cho phép Chrome truy cập camera.</p>
+        </div>
+
+        <div class="card">
+          <div class="verdict" id="verdict">
+            <span class="dot"></span>
+            <div>
+              <div class="verdict-main" id="verdict-main">Chưa bật camera</div>
+              <div class="verdict-sub" id="verdict-sub">—</div>
+            </div>
+          </div>
+
+          <h2>Tín hiệu mắt</h2>
+          <div class="meter">
+            <div class="meter-head"><span>Mắt trái nhắm (L)</span><b id="l-val">0.00</b></div>
+            <div class="track"><div class="fill" id="l-fill"></div><span class="mark" id="l-mark"></span></div>
+          </div>
+          <div class="meter">
+            <div class="meter-head"><span>Mắt phải nhắm (R)</span><b id="r-val">0.00</b></div>
+            <div class="track"><div class="fill" id="r-fill"></div><span class="mark" id="r-mark"></span></div>
+          </div>
+          <div class="meter">
+            <div class="meter-head"><span>Nhìn lên / xuống</span><b id="g-val">0.00</b></div>
+            <div class="track"><div class="fill" id="g-fill"></div></div>
+          </div>
+
+          <h2>Điều kiện nhận diện</h2>
+          <div class="meter">
+            <div class="meter-head"><span>Kích thước mặt trong khung</span><b id="size-val">0.000</b></div>
+            <div class="track"><div class="fill" id="size-fill"></div><span class="mark" id="size-mark"></span></div>
+          </div>
+          <div class="meter">
+            <div class="meter-head"><span>Độ sáng</span><b id="light-val">0.00</b></div>
+            <div class="track"><div class="fill" id="light-fill"></div><span class="mark" id="light-mark"></span></div>
+          </div>
+          <div class="meter">
+            <div class="meter-head"><span>Tốc độ xử lý</span><b id="fps-val">0 fps</b></div>
+            <div class="track"><div class="fill" id="fps-fill"></div></div>
+          </div>
+
+          <h2>Giữ cử chỉ</h2>
+          <div class="meter-head"><span id="hold-label">Chưa có cử chỉ</span><b id="hold-val">0%</b></div>
+          <div class="hold"><div class="hold-fill" id="hold-fill"></div></div>
+
+          <h2>Nhật ký lệnh</h2>
+          <ul id="log"></ul>
+          <div class="raw" id="raw">—</div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="../src/test/main.ts"></script>
+  </body>
+</html>
