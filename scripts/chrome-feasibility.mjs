@@ -3,7 +3,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const extensionPath = resolve('.output/chrome-mv3');
+const extensionPath = resolve('output/chrome-mv3');
 const fakeCameraPath = process.env.EYETUBE_FAKE_CAMERA;
 if (!fakeCameraPath) throw new Error('EYETUBE_FAKE_CAMERA must point to a Y4M file');
 

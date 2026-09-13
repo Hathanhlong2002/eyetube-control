@@ -1,5 +1,8 @@
 node_modules/
 .output/
+output/
+dist/
+build/
 .wxt/
 coverage/
 playwright-report/

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { chromium, expect, test, type BrowserContext } from 'playwright/test';
 
-const extensionPath = resolve('.output/chrome-mv3');
+const extensionPath = resolve('output/chrome-mv3');
 const fakeCameraPath = resolve('e2e/fixtures/fake-camera.y4m');
 
 let profilePath: string;
