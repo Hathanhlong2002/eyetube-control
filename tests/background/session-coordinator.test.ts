@@ -132,3 +132,42 @@ describe('SessionCoordinator', () => {
     expect(dependencies.ensureOffscreen).not.toHaveBeenCalled();
   });
 });
+
+describe('SessionCoordinator diagnostics routing', () => {
+  it('forwards offscreen diagnostics to the active tab and the popup', async () => {
+    const { coordinator, dependencies } = setup();
+    await coordinator.handle({ version: 1, type: 'START_SESSION', tabId: 12 }, popup);
+
+    const diagnostic = {
+      version: 1 as const,
+      type: 'DIAGNOSTIC' as const,
+      tabId: 12,
+      observation: 'UNCERTAIN' as const,
+      blocker: 'TOO_DARK' as const,
+      state: 'SEARCHING' as const,
+      metrics: 'size=0.080 light=0.02 L=0.10 R=0.10 gaze=0.00',
+    };
+    await coordinator.handle(diagnostic, offscreen);
+
+    expect(dependencies.sendToTab).toHaveBeenCalledWith(12, diagnostic);
+    expect(dependencies.sendToRuntime).toHaveBeenCalledWith(diagnostic);
+  });
+
+  it('drops diagnostics for a tab that is not the active session', async () => {
+    const { coordinator, dependencies } = setup();
+    await coordinator.handle({ version: 1, type: 'START_SESSION', tabId: 12 }, popup);
+    dependencies.sendToTab.mockClear();
+
+    await coordinator.handle({
+      version: 1,
+      type: 'DIAGNOSTIC',
+      tabId: 99,
+      observation: 'NEUTRAL',
+      blocker: 'NONE',
+      state: 'READY',
+      metrics: 'size=0.080 light=0.50 L=0.10 R=0.10 gaze=0.00',
+    }, offscreen);
+
+    expect(dependencies.sendToTab).not.toHaveBeenCalled();
+  });
+});

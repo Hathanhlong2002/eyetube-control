@@ -35,20 +35,23 @@ function setup(options: {
   const camera = { start: vi.fn().mockResolvedValue(stream), stop: vi.fn() };
   const updateFn = options.events ?? vi.fn().mockReturnValue([]);
   const machine = {
+    stateName: 'READY' as const,
     reset: vi.fn(),
     update: (observation: Observation, timestampMs: number) => updateFn(observation, timestampMs),
   };
   const sent: RuntimeMessage[] = [];
+  const delays: number[] = [];
   const dependencies = {
     camera,
     createPreviewSender: vi.fn().mockReturnValue(sender),
     createFaceLandmarker: vi.fn(options.createModel ?? (() => Promise.resolve(model))),
-    classifier: vi.fn().mockReturnValue('NEUTRAL' as const),
+    classifier: vi.fn().mockReturnValue({ observation: 'NEUTRAL', blocker: 'NONE' } as const),
     machine,
     video: { srcObject: null } as unknown as HTMLVideoElement,
     send: vi.fn((message: RuntimeMessage) => { sent.push(message); }),
-    scheduleFrame: vi.fn((callback: FrameRequestCallback) => {
+    scheduleFrame: vi.fn((callback: FrameRequestCallback, delayMs: number) => {
       callbacks.push(callback);
+      delays.push(delayMs);
       return callbacks.length;
     }),
     cancelFrame: vi.fn(),
@@ -62,6 +65,7 @@ function setup(options: {
     machine,
     callbacks,
     sent,
+    delays,
     async connect() {
       await this.runtime.start({ tabId: 12 });
       await this.runtime.acceptPreviewAnswer({ type: 'answer', sdp: 'answer-sdp' });
@@ -113,7 +117,9 @@ describe('OffscreenRuntime', () => {
         type: 'COMMAND', gesture: 'WINK_RIGHT', command: 'NEXT_VIDEO', commandId: 'generated-id',
       }]);
     const test = setup({ events });
-    test.dependencies.classifier.mockReturnValueOnce('NO_FACE').mockReturnValueOnce('WINK_RIGHT');
+    test.dependencies.classifier
+      .mockReturnValueOnce({ observation: 'NO_FACE', blocker: 'NO_FACE' })
+      .mockReturnValueOnce({ observation: 'WINK_RIGHT', blocker: 'NONE' });
     await test.connect();
 
     await test.callbacks.shift()!(100);
@@ -161,5 +167,35 @@ describe('OffscreenRuntime', () => {
     expect(test.sender.close).toHaveBeenCalledOnce();
     expect(test.camera.stop).toHaveBeenCalled();
     expect(test.dependencies.video.srcObject).toBeNull();
+  });
+});
+
+describe('OffscreenRuntime inference pacing', () => {
+  it('samples slowly while the face sits neutral and speeds up on a gesture', async () => {
+    const test = setup();
+    await test.connect();
+    // Nothing observed yet, and a settled face, both sample slowly.
+    expect(test.delays.at(-1)).toBe(140);
+
+    await test.callbacks.shift()!(100);
+    expect(test.delays.at(-1)).toBe(140);
+
+    test.dependencies.classifier.mockReturnValue({ observation: 'WINK_RIGHT', blocker: 'NONE' });
+    await test.callbacks.shift()!(200);
+    expect(test.delays.at(-1)).toBe(50);
+  });
+
+  it('does not resend a gesture progress value the overlay already shows', async () => {
+    const events = vi.fn().mockReturnValue([{ type: 'PROGRESS', gesture: 'WINK_RIGHT', progress: 0.5 }]);
+    const test = setup({ events });
+    test.dependencies.classifier.mockReturnValue({ observation: 'WINK_RIGHT', blocker: 'NONE' });
+    await test.connect();
+
+    await test.callbacks.shift()!(100);
+    await test.callbacks.shift()!(200);
+    await test.callbacks.shift()!(300);
+
+    const progress = test.sent.filter((message) => message.type === 'GESTURE_PROGRESS');
+    expect(progress).toHaveLength(1);
   });
 });

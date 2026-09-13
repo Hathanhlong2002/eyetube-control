@@ -1,5 +1,5 @@
 import { parseRuntimeMessage, type RuntimeMessage } from '../contracts/messages';
-import { classify, DEFAULT_CALIBRATION_PROFILE } from '../gesture/classifier';
+import { classifyDetailed, DEFAULT_CALIBRATION_PROFILE } from '../gesture/classifier';
 import { DEFAULT_MACHINE_SETTINGS, GestureMachine } from '../gesture/machine';
 import { CameraSession } from '../media/camera-session';
 import { createFaceLandmarkerAdapter } from '../media/face-landmarker';
@@ -11,12 +11,16 @@ if (!cameraElement) {
   throw new Error('Camera preview element missing');
 }
 
+// Offscreen documents may only use chrome.runtime, so the service worker reads
+// chrome.storage on our behalf and pushes settings in as SETTINGS messages.
+const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
+
 const runtime = new OffscreenRuntime({
   camera: new CameraSession(),
   createPreviewSender,
   createFaceLandmarker: () => createFaceLandmarkerAdapter(),
-  classifier: (features) => classify(features, DEFAULT_CALIBRATION_PROFILE),
-  machine: new GestureMachine(DEFAULT_MACHINE_SETTINGS),
+  classifier: (features) => classifyDetailed(features, DEFAULT_CALIBRATION_PROFILE),
+  machine,
   video: cameraElement,
   send: (message: RuntimeMessage) => {
     try {
@@ -25,10 +29,10 @@ const runtime = new OffscreenRuntime({
       // Extension context might be invalidated during reload
     }
   },
-  scheduleFrame: (callback: FrameRequestCallback) => {
-    // requestAnimationFrame is heavily throttled or frozen in Chrome Offscreen Documents.
-    // setTimeout guarantees a 33fps real-time inference loop.
-    return setTimeout(() => callback(performance.now()), 30) as unknown as number;
+  scheduleFrame: (callback: FrameRequestCallback, delayMs: number) => {
+    // requestAnimationFrame is heavily throttled or frozen in Chrome Offscreen
+    // Documents, so the loop is driven by setTimeout at the rate the runtime asks for.
+    return setTimeout(() => callback(performance.now()), delayMs) as unknown as number;
   },
   cancelFrame: (handle: number) => clearTimeout(handle),
 });
@@ -51,5 +55,13 @@ chrome.runtime.onMessage.addListener((input: unknown, _sender, sendResponse) => 
     void runtime.addRemoteCandidate(message.candidate);
   } else if (message.type === 'SESSION_VISIBILITY' && message.tabId === runtime.activeTabId) {
     runtime.setVisibility(message.visible);
+  } else if (message.type === 'SETTINGS') {
+    machine.configure({
+      navigationHoldMs: message.navigationHoldMs,
+      playPauseHoldMs: message.playPauseHoldMs,
+      accountHoldMs: message.accountHoldMs,
+      cooldownMs: message.cooldownMs,
+      enabledGestures: message.enabledGestures,
+    });
   }
 });

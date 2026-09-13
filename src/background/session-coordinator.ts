@@ -137,7 +137,8 @@ export class SessionCoordinator {
         await this.dependencies.sendToTab(message.tabId, message);
         await this.dependencies.sendToRuntime(message);
       } else if (message.type === 'GESTURE_PROGRESS'
-        || message.type === 'GESTURE_CANCELLED') {
+        || message.type === 'GESTURE_CANCELLED'
+        || message.type === 'DIAGNOSTIC') {
         await this.dependencies.sendToTab(message.tabId, message);
         await this.dependencies.sendToRuntime(message);
       } else if (message.type === 'PREVIEW_OFFER'

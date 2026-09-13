@@ -1,6 +1,9 @@
+import type { RuntimeMessage } from '../src/contracts/messages';
+import { parseSettings } from '../src/contracts/settings';
 import { SessionCoordinator, type SessionStore } from '../src/background/session-coordinator';
 
 const SESSION_KEY = 'eyetube_session';
+const SETTINGS_KEY = 'eyetube_settings';
 
 export default defineBackground(() => {
   const offscreenUrl = chrome.runtime.getURL('offscreen.html');
@@ -37,6 +40,29 @@ export default defineBackground(() => {
     await creatingOffscreen;
   }
 
+  /**
+   * Offscreen documents cannot read chrome.storage, so the popup's settings are
+   * pushed to the gesture engine from here.
+   */
+  async function pushSettings(tabId: number): Promise<void> {
+    try {
+      const stored = await chrome.storage.local.get(SETTINGS_KEY);
+      const settings = parseSettings(stored[SETTINGS_KEY]);
+      await chrome.runtime.sendMessage({
+        version: 1,
+        type: 'SETTINGS',
+        tabId,
+        navigationHoldMs: settings.navigationHoldMs,
+        playPauseHoldMs: settings.playPauseHoldMs,
+        accountHoldMs: settings.accountHoldMs,
+        cooldownMs: settings.cooldownMs,
+        enabledGestures: settings.enabledGestures,
+      } satisfies RuntimeMessage);
+    } catch {
+      // No offscreen listener yet, or the session already stopped
+    }
+  }
+
   async function closeOffscreen(): Promise<void> {
     if (await hasOffscreenDocument()) await chrome.offscreen.closeDocument();
   }
@@ -68,10 +94,17 @@ export default defineBackground(() => {
     }
   }
 
-  async function ensureContentScript(tabId: number): Promise<void> {
+  // A PING before every single message doubled the tab traffic, so liveness is
+  // remembered and only re-checked when a real send fails.
+  const liveContentScripts = new Set<number>();
+
+  async function injectContentScript(tabId: number): Promise<void> {
     try {
       const res = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
-      if (res?.type === 'PONG') return;
+      if (res?.type === 'PONG') {
+        liveContentScripts.add(tabId);
+        return;
+      }
     } catch {
       // Content script not yet active
     }
@@ -81,8 +114,21 @@ export default defineBackground(() => {
         files: ['content-scripts/youtube.js'],
       });
       await new Promise((resolve) => setTimeout(resolve, 60));
+      liveContentScripts.add(tabId);
     } catch (err) {
       console.warn('[EyeTube Background] Auto-inject content script notice:', err);
+    }
+  }
+
+  async function sendToTab(tabId: number, message: RuntimeMessage): Promise<unknown> {
+    if (!liveContentScripts.has(tabId)) await injectContentScript(tabId);
+    try {
+      return await chrome.tabs.sendMessage(tabId, message);
+    } catch (error) {
+      // The tab reloaded or navigated away from under us: re-inject once.
+      liveContentScripts.delete(tabId);
+      await injectContentScript(tabId);
+      return chrome.tabs.sendMessage(tabId, message);
     }
   }
 
@@ -92,11 +138,18 @@ export default defineBackground(() => {
     ensureOffscreen,
     closeOffscreen,
     isEligibleTab,
-    sendToRuntime: (message) => chrome.runtime.sendMessage(message),
-    sendToTab: async (tabId, message) => {
-      await ensureContentScript(tabId);
-      return chrome.tabs.sendMessage(tabId, message);
+    sendToRuntime: async (message) => {
+      const result = await chrome.runtime.sendMessage(message);
+      if (message.type === 'START_SESSION') await pushSettings(message.tabId);
+      return result;
     },
+    sendToTab,
+  });
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    const tabId = coordinator.activeTabId;
+    if (area !== 'local' || !changes[SETTINGS_KEY] || tabId === null) return;
+    void pushSettings(tabId);
   });
 
   const fakePopupSender = {
@@ -123,6 +176,7 @@ export default defineBackground(() => {
   });
 
   chrome.tabs.onRemoved.addListener((tabId) => {
+    liveContentScripts.delete(tabId);
     if (coordinator.activeTabId === tabId) {
       void coordinator.handle(
         { version: 1, type: 'STOP_SESSION', tabId },

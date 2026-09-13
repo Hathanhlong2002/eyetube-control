@@ -1,7 +1,12 @@
 import type { PreviewCandidate, PreviewDescription, RuntimeMessage } from '../contracts/messages';
-import type { FaceFeatures } from '../gesture/classifier';
+import type { DetectionBlocker, MachineStateName } from '../contracts/status';
+import type { Classification, FaceFeatures } from '../gesture/classifier';
 import type { GestureEvent, Observation } from '../gesture/types';
 import type { PreviewSender } from '../media/local-preview-peer';
+
+/** ~20 fps while a gesture is in flight, ~7 fps once the face settles. */
+const ACTIVE_FRAME_DELAY_MS = 50;
+const IDLE_FRAME_DELAY_MS = 140;
 
 export interface CameraSessionLike {
   start(deviceId?: string): Promise<MediaStream>;
@@ -14,6 +19,7 @@ export interface FaceLandmarkerLike {
 }
 
 export interface GestureMachineLike {
+  readonly stateName: MachineStateName;
   reset(): void;
   update(observation: Observation, timestampMs: number): GestureEvent[];
 }
@@ -22,11 +28,11 @@ export interface OffscreenRuntimeDependencies {
   camera: CameraSessionLike;
   createPreviewSender: (stream: MediaStream) => PreviewSender;
   createFaceLandmarker: () => Promise<FaceLandmarkerLike>;
-  classifier: (features: FaceFeatures) => Observation;
+  classifier: (features: FaceFeatures) => Classification;
   machine: GestureMachineLike;
   video: HTMLVideoElement;
   send: (message: RuntimeMessage) => void;
-  scheduleFrame: (callback: FrameRequestCallback) => number;
+  scheduleFrame: (callback: FrameRequestCallback, delayMs: number) => number;
   cancelFrame: (handle: number) => void;
 }
 
@@ -38,7 +44,10 @@ export class OffscreenRuntime {
   #isVisible = true;
   #isDetecting = false;
   #isAcceptingAnswer = false;
-  #lastStatsSentAt = 0;
+  #lastDiagnosticAt = 0;
+  #lastDiagnosticKey = '';
+  #lastObservation: Observation = 'NO_FACE';
+  #lastProgressPercent = -1;
 
   constructor(private readonly dependencies: OffscreenRuntimeDependencies) {}
 
@@ -131,12 +140,55 @@ export class OffscreenRuntime {
     }
   }
 
+  /**
+   * Detection telemetry is the only way a user can tell a silent classifier
+   * rejection (face too small, room too dark) from a working session, so it is
+   * routed to the YouTube tab rather than the offscreen console nobody opens.
+   */
+  #reportDiagnostic(
+    tabId: number,
+    observation: Observation,
+    blocker: DetectionBlocker,
+    features: FaceFeatures,
+    time: number,
+  ): void {
+    const state = this.dependencies.machine.stateName;
+    const key = `${observation}|${blocker}|${state}`;
+    if (key === this.#lastDiagnosticKey && time - this.#lastDiagnosticAt < 1_000) return;
+    this.#lastDiagnosticKey = key;
+    this.#lastDiagnosticAt = time;
+    this.dependencies.send({
+      version: 1,
+      type: 'DIAGNOSTIC',
+      tabId,
+      observation,
+      blocker,
+      state,
+      metrics: `size=${features.faceSize.toFixed(3)} light=${features.brightness.toFixed(2)}`
+        + ` L=${features.leftEyeClosed.toFixed(2)} R=${features.rightEyeClosed.toFixed(2)}`
+        + ` gaze=${features.gazeVertical.toFixed(2)} vis=${features.eyeVisibility.toFixed(2)}`
+        + ` yaw=${features.headYaw.toFixed(2)} pitch=${features.headPitch.toFixed(2)}`,
+    });
+  }
+
+  /**
+   * Inference is the extension's whole CPU cost, so the loop only runs fast
+   * while something is actually happening: a gesture being held, or an eye
+   * signal that has left neutral. A settled face is sampled at a third of that.
+   */
+  #inferenceDelay(): number {
+    if (this.dependencies.machine.stateName === 'HOLDING') return ACTIVE_FRAME_DELAY_MS;
+    return this.#lastObservation === 'NEUTRAL' || this.#lastObservation === 'NO_FACE'
+      ? IDLE_FRAME_DELAY_MS
+      : ACTIVE_FRAME_DELAY_MS;
+  }
+
   #scheduleInference(): void {
     if (!this.#isVisible || !this.#model || this.#frameHandle !== null) return;
     this.#frameHandle = this.dependencies.scheduleFrame((time) => {
       this.#frameHandle = null;
       void this.#infer(time);
-    });
+    }, this.#inferenceDelay());
   }
 
   #cancelInference(): void {
@@ -152,23 +204,18 @@ export class OffscreenRuntime {
     this.#isDetecting = true;
     try {
       const features = await this.#model.detect(this.dependencies.video, time);
-      const observation = this.dependencies.classifier(features);
-
-      if (features.faceDetected) {
-        if (time - this.#lastStatsSentAt >= 1000 || observation !== 'NEUTRAL' || features.leftEyeClosed > 0.35 || features.rightEyeClosed > 0.35) {
-          this.#lastStatsSentAt = time;
-          console.log(`[EyeTube CV] 👁️ Mặt: OK | L=${features.leftEyeClosed.toFixed(2)} R=${features.rightEyeClosed.toFixed(2)} | Cử chỉ: ${observation}`);
-        }
-      } else {
-        if (time - this.#lastStatsSentAt >= 2000) {
-          this.#lastStatsSentAt = time;
-          console.log('[EyeTube CV] 🔍 Chưa tìm thấy khuôn mặt trong camera');
-        }
-      }
+      const { observation, blocker } = this.dependencies.classifier(features);
+      this.#lastObservation = observation;
+      this.#reportDiagnostic(tabId, observation, blocker, features, time);
 
       const events = this.dependencies.machine.update(observation, time);
       for (const event of events) {
         if (event.type === 'PROGRESS') {
+          // The overlay renders whole percent, so identical frames would only
+          // cost a message hop and a re-render.
+          const percent = Math.round(event.progress * 100);
+          if (percent === this.#lastProgressPercent) continue;
+          this.#lastProgressPercent = percent;
           this.dependencies.send({
             version: 1,
             type: 'GESTURE_PROGRESS',
@@ -177,12 +224,14 @@ export class OffscreenRuntime {
             progress: event.progress,
           });
         } else if (event.type === 'CANCELLED') {
+          this.#lastProgressPercent = -1;
           this.dependencies.send({
             version: 1,
             type: 'GESTURE_CANCELLED',
             tabId,
           });
         } else if (event.type === 'COMMAND') {
+          this.#lastProgressPercent = -1;
           this.dependencies.send({
             version: 1,
             type: 'COMMAND',
@@ -210,5 +259,9 @@ export class OffscreenRuntime {
     this.dependencies.video.srcObject = null;
     this.#activeTabId = null;
     this.#isAcceptingAnswer = false;
+    this.#lastDiagnosticAt = 0;
+    this.#lastDiagnosticKey = '';
+    this.#lastObservation = 'NO_FACE';
+    this.#lastProgressPercent = -1;
   }
 }
