@@ -152,6 +152,9 @@ export class OffscreenRuntime {
     try {
       const features = await this.#model.detect(this.dependencies.video, time);
       const observation = this.dependencies.classifier(features);
+      if (features.faceDetected && (observation !== 'NEUTRAL' || features.leftEyeClosed > 0.4 || features.rightEyeClosed > 0.4)) {
+        console.log(`[EyeTube CV] obs=${observation} L=${features.leftEyeClosed.toFixed(2)} R=${features.rightEyeClosed.toFixed(2)}`);
+      }
       const events = this.dependencies.machine.update(observation, time);
       for (const event of events) {
         if (event.type === 'PROGRESS') {

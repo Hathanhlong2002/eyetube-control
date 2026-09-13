@@ -19,10 +19,18 @@ const runtime = new OffscreenRuntime({
   machine: new GestureMachine(DEFAULT_MACHINE_SETTINGS),
   video: cameraElement,
   send: (message: RuntimeMessage) => {
-    void chrome.runtime.sendMessage(message);
+    try {
+      void chrome.runtime.sendMessage(message).catch(() => {});
+    } catch {
+      // Extension context might be invalidated during reload
+    }
   },
-  scheduleFrame: (callback: FrameRequestCallback) => requestAnimationFrame(callback),
-  cancelFrame: (handle: number) => cancelAnimationFrame(handle),
+  scheduleFrame: (callback: FrameRequestCallback) => {
+    // requestAnimationFrame is heavily throttled or frozen in Chrome Offscreen Documents.
+    // setTimeout guarantees a 33fps real-time inference loop.
+    return setTimeout(() => callback(performance.now()), 30) as unknown as number;
+  },
+  cancelFrame: (handle: number) => clearTimeout(handle),
 });
 
 chrome.runtime.onMessage.addListener((input: unknown, _sender, sendResponse) => {

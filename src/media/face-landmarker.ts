@@ -154,8 +154,8 @@ class LocalFaceLandmarkerAdapter implements FaceLandmarkerAdapter {
     this.#lastTimestamp = timestampMs;
 
     if (this.#inFlight) return this.#lastFeatures ?? absentFace(0);
-    if (this.#lastProcessedAt !== null && timestampMs - this.#lastProcessedAt < this.#intervalMs) {
-      return this.#lastFeatures ?? absentFace(0);
+    if (this.#lastFeatures && this.#lastProcessedAt !== null && timestampMs - this.#lastProcessedAt < this.#intervalMs) {
+      return this.#lastFeatures;
     }
 
     const task = Promise.resolve().then(() => {
