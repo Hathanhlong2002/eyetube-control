@@ -1,0 +1,10 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "types": ["vitest/globals", "@testing-library/jest-dom/vitest", "node"]
+  },
+  "include": ["entrypoints", "src", "tests", "*.config.ts"]
+}
