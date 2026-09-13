@@ -1,5 +1,18 @@
 import { parseRuntimeMessage, type PreviewCandidate, type RuntimeMessage } from '../src/contracts/messages';
 import { createPreviewReceiver, type PreviewReceiver } from '../src/media/local-preview-peer';
+import { mountOverlay, type OverlayHandle } from '../src/overlay/App';
+import { clampTileGeometry, type TileGeometry } from '../src/overlay/geometry';
+import { createYouTubeController } from '../src/youtube/controller';
+import { observeYouTubeNavigation } from '../src/youtube/lifecycle';
+
+const GEOMETRY_KEY = 'tileGeometry';
+
+function isTileGeometry(value: unknown): value is TileGeometry {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return ['x', 'y', 'width', 'height'].every((key) => typeof candidate[key] === 'number'
+    && Number.isFinite(candidate[key]));
+}
 
 export default defineContentScript({
   matches: ['https://www.youtube.com/*'],
@@ -8,93 +21,61 @@ export default defineContentScript({
     let receiver: PreviewReceiver | null = null;
     let hasOffer = false;
     let pendingCandidates: PreviewCandidate[] = [];
-    let host: HTMLElement | null = null;
-    let statusElement: HTMLElement | null = null;
-    let videoElement: HTMLVideoElement | null = null;
+    let overlay: OverlayHandle | null = null;
+    let completionTimer: ReturnType<typeof setTimeout> | null = null;
+    let controller = createYouTubeController(document);
 
-    function ensureOverlay(): void {
-      if (host) return;
-      host = document.createElement('div');
-      host.dataset.eyetubeControl = 'preview';
-      const shadow = host.attachShadow({ mode: 'closed' });
-      const style = document.createElement('style');
-      style.textContent = `
-        :host { all: initial; }
-        .tile { position: fixed; left: 16px; bottom: 16px; z-index: 2147483647; width: 240px;
-          border: 2px solid #60a5fa; border-radius: 16px; overflow: hidden; background: #0f172a;
-          color: #f8fafc; box-shadow: 0 12px 32px rgba(0,0,0,.45); font: 600 14px/1.4 system-ui,sans-serif; }
-        video { display: block; width: 100%; aspect-ratio: 4/3; object-fit: cover; transform: scaleX(-1); background: #020617; }
-        .bar { min-height: 44px; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; }
-        .dot { width: 9px; height: 9px; border-radius: 50%; background: #f59e0b; }
-        .ready .dot { background: #22c55e; }
-        [role=status] { flex: 1; }
-        button { width: 44px; height: 44px; border: 0; border-radius: 10px; color: white; background: #b91c1c;
-          font: 700 18px system-ui,sans-serif; cursor: pointer; }
-        button:focus-visible { outline: 3px solid white; outline-offset: 2px; }
-      `;
-      const tile = document.createElement('section');
-      tile.className = 'tile';
-      tile.setAttribute('aria-label', 'EyeTube Control camera preview');
-      videoElement = document.createElement('video');
-      videoElement.autoplay = true;
-      videoElement.muted = true;
-      videoElement.playsInline = true;
-      const bar = document.createElement('div');
-      bar.className = 'bar';
-      const dot = document.createElement('span');
-      dot.className = 'dot';
-      dot.setAttribute('aria-hidden', 'true');
-      statusElement = document.createElement('span');
-      statusElement.setAttribute('role', 'status');
-      statusElement.setAttribute('aria-live', 'polite');
-      statusElement.textContent = 'Starting camera…';
-      const stopButton = document.createElement('button');
-      stopButton.type = 'button';
-      stopButton.setAttribute('aria-label', 'Stop eye control');
-      stopButton.textContent = '×';
-      stopButton.addEventListener('click', () => {
-        if (activeTabId !== null) void chrome.runtime.sendMessage({
-          version: 1,
-          type: 'STOP_SESSION',
-          tabId: activeTabId,
-        } satisfies RuntimeMessage);
+    const stopNavigation = observeYouTubeNavigation(() => {
+      controller = createYouTubeController(document);
+    });
+
+    function ensureOverlay(): OverlayHandle {
+      if (overlay) return overlay;
+      overlay = mountOverlay({
+        onStop: () => {
+          if (activeTabId !== null) void chrome.runtime.sendMessage({
+            version: 1,
+            type: 'STOP_SESSION',
+            tabId: activeTabId,
+          } satisfies RuntimeMessage);
+        },
+        onGeometryChange: (geometry) => {
+          void chrome.storage.local.set({ [GEOMETRY_KEY]: geometry });
+        },
       });
-      bar.append(dot, statusElement, stopButton);
-      tile.append(videoElement, bar);
-      shadow.append(style, tile);
-      document.documentElement.append(host);
+      void chrome.storage.local.get(GEOMETRY_KEY).then((stored) => {
+        if (!overlay || !isTileGeometry(stored[GEOMETRY_KEY])) return;
+        overlay.update({
+          geometry: clampTileGeometry(stored[GEOMETRY_KEY], {
+            width: window.innerWidth,
+            height: window.innerHeight,
+          }),
+        });
+      });
+      return overlay;
     }
 
-    function setStatus(text: string, isReady = false): void {
-      ensureOverlay();
-      if (statusElement) statusElement.textContent = text;
-      const tile = statusElement?.closest('.tile');
-      tile?.classList.toggle('ready', isReady);
-    }
-
-    function destroy(): void {
+    function closePeer(): void {
       receiver?.close();
       receiver = null;
-      if (videoElement) {
-        videoElement.pause();
-        videoElement.srcObject = null;
-      }
-      host?.remove();
-      host = null;
-      statusElement = null;
-      videoElement = null;
-      activeTabId = null;
       hasOffer = false;
       pendingCandidates = [];
     }
 
+    function destroy(): void {
+      closePeer();
+      if (completionTimer) clearTimeout(completionTimer);
+      completionTimer = null;
+      overlay?.destroy();
+      overlay = null;
+      activeTabId = null;
+    }
+
     async function acceptOffer(message: Extract<RuntimeMessage, { type: 'PREVIEW_OFFER' }>): Promise<void> {
-      destroy();
+      closePeer();
       activeTabId = message.tabId;
-      ensureOverlay();
-      receiver = createPreviewReceiver((stream) => {
-        if (videoElement) videoElement.srcObject = stream;
-      });
+      const tile = ensureOverlay();
+      receiver = createPreviewReceiver((stream) => tile.update({ preview: stream }));
       receiver.onCandidate((candidate) => void chrome.runtime.sendMessage({
         version: 1,
         type: 'PREVIEW_CANDIDATE',
@@ -113,6 +94,34 @@ export default defineContentScript({
       } satisfies RuntimeMessage);
     }
 
+    async function executeCommand(message: Extract<RuntimeMessage, { type: 'COMMAND' }>): Promise<void> {
+      if (message.tabId !== activeTabId) return;
+      const result = await controller.execute(message.command, message.commandId);
+      const tile = ensureOverlay();
+      if (result.status === 'EXECUTED' || result.status === 'ALREADY_APPLIED') {
+        tile.update({
+          status: 'COMMAND_COMPLETED',
+          reason: undefined,
+          gesture: undefined,
+          progress: undefined,
+          completedCommand: message.command,
+        });
+        if (completionTimer) clearTimeout(completionTimer);
+        completionTimer = setTimeout(() => {
+          overlay?.update({ status: 'READY', completedCommand: undefined });
+          completionTimer = null;
+        }, 1_000);
+      } else {
+        tile.update({
+          status: 'WARNING',
+          reason: 'YOUTUBE_COMMAND_UNAVAILABLE',
+          gesture: undefined,
+          progress: undefined,
+          completedCommand: undefined,
+        });
+      }
+    }
+
     const messageListener = (input: unknown) => {
       const message = parseRuntimeMessage(input);
       if (!message) return;
@@ -123,9 +132,30 @@ export default defineContentScript({
         else pendingCandidates.push(message.candidate);
       } else if (message.type === 'STATUS') {
         activeTabId = message.tabId;
-        if (message.status === 'READY') setStatus('Camera active · Ready', true);
-        else if (message.status === 'ERROR') setStatus(`Camera error: ${message.reason ?? 'UNKNOWN'}`);
-        else setStatus(message.status === 'SEARCHING' ? 'Finding your face…' : 'Starting camera…');
+        ensureOverlay().update({
+          status: message.status,
+          reason: message.reason,
+          gesture: undefined,
+          progress: undefined,
+          completedCommand: undefined,
+        });
+      } else if (message.type === 'GESTURE_PROGRESS' && message.tabId === activeTabId) {
+        ensureOverlay().update({
+          status: 'HOLDING',
+          reason: undefined,
+          gesture: message.gesture,
+          progress: message.progress,
+          completedCommand: undefined,
+        });
+      } else if (message.type === 'GESTURE_CANCELLED' && message.tabId === activeTabId) {
+        ensureOverlay().update({
+          status: 'READY',
+          gesture: undefined,
+          progress: undefined,
+          completedCommand: undefined,
+        });
+      } else if (message.type === 'COMMAND') {
+        void executeCommand(message);
       } else if (message.type === 'STOP_SESSION' && message.tabId === activeTabId) {
         destroy();
       }
@@ -134,8 +164,8 @@ export default defineContentScript({
     chrome.runtime.onMessage.addListener(messageListener);
     ctx.onInvalidated(() => {
       chrome.runtime.onMessage.removeListener(messageListener);
+      stopNavigation();
       destroy();
     });
   },
 });
-

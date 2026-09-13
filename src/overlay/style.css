@@ -1,0 +1,49 @@
+:host { all: initial; }
+*, *::before, *::after { box-sizing: border-box; }
+.eyetube-tile, .eyetube-pill {
+  position: fixed;
+  z-index: 2147483647;
+  color: #f8fafc;
+  background: #0f172a;
+  border: 2px solid #64748b;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+  font: 600 14px/1.35 ui-sans-serif, system-ui, sans-serif;
+}
+.eyetube-tile.state-ready { border-color: #22c55e; }
+.eyetube-tile.state-holding { border-color: #60a5fa; }
+.eyetube-tile.state-error { border-color: #ef4444; }
+.eyetube-preview { height: calc(100% - 48px); position: relative; touch-action: none; cursor: move; background: #020617; }
+video { width: 100%; height: 100%; display: block; object-fit: cover; transform: scaleX(-1); }
+.eyetube-progress {
+  --progress: 0%;
+  position: absolute;
+  inset: 8px;
+  border-radius: 12px;
+  border: 4px solid transparent;
+  background: conic-gradient(#60a5fa var(--progress), transparent 0) border-box;
+  mask: linear-gradient(#000 0 0) padding-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.eyetube-bar { height: 48px; display: flex; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; }
+.eyetube-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #22c55e; }
+.eyetube-status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: #334155;
+  font: 700 15px/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+button[aria-label="Stop eye control"] { background: #b91c1c; }
+button:focus-visible { outline: 3px solid #fff; outline-offset: -4px; }
+.eyetube-resize { position: absolute; right: 0; bottom: 48px; cursor: nwse-resize; background: rgb(15 23 42 / 75%); touch-action: none; }
+.eyetube-pill { left: 16px; bottom: 16px; display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 4px 4px 4px 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .eyetube-tile, .eyetube-pill { transition: border-color 180ms ease, box-shadow 180ms ease; }
+}
