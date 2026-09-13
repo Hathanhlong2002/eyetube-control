@@ -4,9 +4,21 @@ import { createPreviewReceiver, type PreviewReceiver } from '../src/media/local-
 import { mountOverlay, type OverlayHandle } from '../src/overlay/App';
 import { clampTileGeometry, type TileGeometry } from '../src/overlay/geometry';
 import { createYouTubeController } from '../src/youtube/controller';
+import { relatedVideoTitle } from '../src/youtube/semantics';
 import { observeYouTubeNavigation } from '../src/youtube/lifecycle';
 
 const GEOMETRY_KEY = 'tileGeometry';
+
+/**
+ * Title of the video a held hand gesture is aiming at, so it can be aborted
+ * before it fires. The overlay already names the position, so this is the
+ * title alone; without one the overlay keeps its generic wording.
+ */
+function heldTarget(gesture: string): string | undefined {
+  const match = /^HAND_([1-5])$/.exec(gesture);
+  if (!match) return undefined;
+  return relatedVideoTitle(document, Number(match[1])) ?? undefined;
+}
 
 const BLOCKER_HINT: Record<DetectionBlocker, string | undefined> = {
   NONE: undefined,
@@ -158,6 +170,7 @@ export default defineContentScript({
         tile.update({
           status: 'COMMAND_COMPLETED',
           hint: undefined,
+          target: undefined,
           reason: undefined,
           gesture: undefined,
           progress: undefined,
@@ -231,6 +244,7 @@ export default defineContentScript({
         ensureOverlay().update({
           status: 'HOLDING',
           hint: undefined,
+          target: heldTarget(message.gesture),
           reason: undefined,
           gesture: message.gesture,
           progress: message.progress,
@@ -241,6 +255,7 @@ export default defineContentScript({
         lastStatus = 'READY';
         ensureOverlay().update({
           status: 'READY',
+          target: undefined,
           gesture: undefined,
           progress: undefined,
           completedCommand: undefined,

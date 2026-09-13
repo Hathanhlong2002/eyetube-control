@@ -78,6 +78,8 @@ export interface EyeControlOverlayProps {
   hint: string | undefined;
   /** Live detection numbers, shown on the tile so no DevTools is needed. */
   metrics: string | undefined;
+  /** What the gesture being held is about to do, so it can be aborted in time. */
+  target: string | undefined;
   onGeometryChange(geometry: TileGeometry): void;
   onMinimizedChange(minimized: boolean): void;
   onStop(): void;
@@ -86,7 +88,9 @@ export interface EyeControlOverlayProps {
 function announcedText(props: EyeControlOverlayProps): string {
   if (props.completedCommand) return `${COMMAND_TEXT[props.completedCommand]} completed`;
   if (props.status === 'CALIBRATING' && props.calibrationStep) return `Calibration ${props.calibrationStep} of 5`;
-  if (props.gesture && props.progress !== undefined) return GESTURE_TEXT[props.gesture];
+  if (props.gesture && props.progress !== undefined) {
+    return props.target ? `${GESTURE_ACTION[props.gesture]}: ${props.target}` : GESTURE_TEXT[props.gesture];
+  }
   if (props.hint) return props.hint;
   if (props.reason && ERROR_TEXT[props.reason]) return ERROR_TEXT[props.reason]!;
   return STATUS_TEXT[props.status];
@@ -213,7 +217,7 @@ export function EyeControlOverlay(props: EyeControlOverlayProps) {
 
 export type OverlaySnapshot = Pick<EyeControlOverlayProps,
   'status' | 'reason' | 'preview' | 'geometry' | 'minimized'
-  | 'gesture' | 'progress' | 'completedCommand' | 'calibrationStep' | 'hint' | 'metrics'>;
+  | 'gesture' | 'progress' | 'completedCommand' | 'calibrationStep' | 'hint' | 'metrics' | 'target'>;
 
 export interface OverlayHandle {
   update(patch: Partial<OverlaySnapshot>): void;
@@ -252,6 +256,7 @@ export function mountOverlay(options: {
     calibrationStep: undefined,
     hint: undefined,
     metrics: undefined,
+    target: undefined,
   };
 
   const render = () => reactRoot.render(<EyeControlOverlay

@@ -16,6 +16,7 @@ function props(overrides: Partial<EyeControlOverlayProps> = {}): EyeControlOverl
     calibrationStep: undefined,
     hint: undefined,
     metrics: undefined,
+    target: undefined,
     onGeometryChange: vi.fn(),
     onMinimizedChange: vi.fn(),
     onStop: vi.fn(),

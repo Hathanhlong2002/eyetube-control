@@ -40,6 +40,15 @@ export function relatedVideoLinks(root: ParentNode): HTMLAnchorElement[] {
   return links;
 }
 
+/** Title of the sidebar entry at a 1-based position, when it can be read. */
+export function relatedVideoTitle(root: ParentNode, position: number): string | null {
+  const link = relatedVideoLinks(root)[position - 1];
+  if (!link) return null;
+  const lockup = link.closest('yt-lockup-view-model, ytd-compact-video-renderer') ?? link.parentElement;
+  const title = lockup?.querySelector('span[role="text"], #video-title, h3')?.textContent?.trim();
+  return title && title.length > 0 ? title : null;
+}
+
 export function isWatchPageReady(root: ParentNode): boolean {
   return root.querySelector(YOUTUBE_SELECTORS.watchRoot) !== null
     || root.querySelector('video') !== null
