@@ -7,7 +7,7 @@
   "packageManager": "npm@11.6.2",
   "scripts": {
     "dev": "wxt",
-    "build": "wxt build",
+    "build": "wxt build && rm -rf build && cp -R .output/chrome-mv3 build",
     "zip": "wxt zip",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
