@@ -7,6 +7,11 @@ import type { FrameScaler } from '../media/frame-scaler';
 import type { GestureEvent, Observation } from '../gesture/types';
 import type { PreviewSender } from '../media/local-preview-peer';
 
+function handReadout(hand: HandFeatures | null): string {
+  if (!hand?.handDetected) return '-';
+  return hand.fullyInFrame ? String(hand.fingerCount) : 'edge';
+}
+
 /**
  * Approximate face box in normalised frame coordinates, grown slightly so the
  * jitter around its edges is excluded too.
@@ -105,6 +110,12 @@ export class OffscreenRuntime {
   #lastFace: FaceFeatures | null = null;
   #handAwakeUntil = 0;
   #handSampledAt: number | null = null;
+  /**
+   * Set once a hand command fires. A hand resting in shot keeps changing its
+   * apparent finger count, which used to re-arm and fire again every couple of
+   * seconds, so the hand must leave the frame before it can command anything.
+   */
+  #handLockedUntilAbsent = false;
   #lastProgressPercent = -1;
 
   constructor(private readonly dependencies: OffscreenRuntimeDependencies) {}
@@ -262,8 +273,8 @@ export class OffscreenRuntime {
         + ` L=${features.leftEyeClosed.toFixed(2)} R=${features.rightEyeClosed.toFixed(2)}`
         + ` gaze=${features.gazeVertical.toFixed(2)} vis=${features.eyeVisibility.toFixed(2)}`
         + ` yaw=${features.headYaw.toFixed(2)} pitch=${features.headPitch.toFixed(2)}`
-        + ` fingers=${this.#lastHand?.handDetected ? this.#lastHand.fingerCount : '-'}`
-        + ` hand=${time < this.#handAwakeUntil ? 'scan' : 'idle'}`,
+        + ` fingers=${handReadout(this.#lastHand)}`
+        + ` hand=${this.#handLockedUntilAbsent ? 'locked' : time < this.#handAwakeUntil ? 'scan' : 'idle'}`,
     });
   }
 
@@ -311,9 +322,13 @@ export class OffscreenRuntime {
       const hand = this.#handModel ? await this.#detectHand(time, features) : null;
       // A raised hand is unambiguous and deliberate, so it outranks whatever the
       // eyes happen to be doing while the hand is being held up.
-      const handGesture = hand?.handDetected && hand.fingerCount >= 1 && hand.fingerCount <= 5
-        ? HAND_GESTURE_BY_COUNT[hand.fingerCount - 1]!
-        : null;
+      if (!hand?.handDetected) this.#handLockedUntilAbsent = false;
+      const handReadable = Boolean(hand?.handDetected)
+        && hand!.fullyInFrame
+        && !this.#handLockedUntilAbsent
+        && hand!.fingerCount >= 1
+        && hand!.fingerCount <= 5;
+      const handGesture = handReadable ? HAND_GESTURE_BY_COUNT[hand!.fingerCount - 1]! : null;
       const observation: Observation = handGesture ?? face.observation;
       const blocker = handGesture ? 'NONE' : face.blocker;
       this.#lastObservation = observation;
@@ -345,6 +360,7 @@ export class OffscreenRuntime {
           });
         } else if (event.type === 'COMMAND') {
           this.#lastProgressPercent = -1;
+          if (event.gesture.startsWith('HAND_')) this.#handLockedUntilAbsent = true;
           this.dependencies.send({
             version: 1,
             type: 'COMMAND',
@@ -381,6 +397,7 @@ export class OffscreenRuntime {
     this.#lastFace = null;
     this.#handAwakeUntil = 0;
     this.#handSampledAt = null;
+    this.#handLockedUntilAbsent = false;
     this.dependencies.motion?.reset();
     this.#lastProgressPercent = -1;
   }

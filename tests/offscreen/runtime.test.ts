@@ -238,7 +238,11 @@ describe('OffscreenRuntime hand gestures', () => {
 
   function withHand(fingerCount: number) {
     const handModel = {
-      detect: vi.fn().mockResolvedValue({ handDetected: fingerCount > 0, fingerCount }),
+      detect: vi.fn().mockResolvedValue({
+        handDetected: fingerCount > 0,
+        fingerCount,
+        fullyInFrame: true,
+      }),
       close: vi.fn(),
     };
     const test = setup();
@@ -287,7 +291,11 @@ describe('OffscreenRuntime hand tracking cost gate', () => {
 
   function withMotion(motionValues: number[], fingerCount = 2) {
     const handModel = {
-      detect: vi.fn().mockResolvedValue({ handDetected: fingerCount > 0, fingerCount }),
+      detect: vi.fn().mockResolvedValue({
+        handDetected: fingerCount > 0,
+        fingerCount,
+        fullyInFrame: true,
+      }),
       close: vi.fn(),
     };
     const test = setup();
@@ -349,7 +357,7 @@ describe('OffscreenRuntime face-aware motion gate', () => {
 
   it('asks the sampler to ignore the region the face occupies', async () => {
     const handModel = {
-      detect: vi.fn().mockResolvedValue({ handDetected: false, fingerCount: 0 }),
+      detect: vi.fn().mockResolvedValue({ handDetected: false, fingerCount: 0, fullyInFrame: false }),
       close: vi.fn(),
     };
     const surface = {} as TexImageSource;
@@ -373,7 +381,7 @@ describe('OffscreenRuntime face-aware motion gate', () => {
 
   it('feeds the hand model the downscaled surface, not the full frame', async () => {
     const handModel = {
-      detect: vi.fn().mockResolvedValue({ handDetected: true, fingerCount: 1 }),
+      detect: vi.fn().mockResolvedValue({ handDetected: true, fingerCount: 1, fullyInFrame: true }),
       close: vi.fn(),
     };
     const surface = {} as TexImageSource;
@@ -390,7 +398,7 @@ describe('OffscreenRuntime face-aware motion gate', () => {
 
   it('skips hand work entirely while the video has no frame to scale', async () => {
     const handModel = {
-      detect: vi.fn().mockResolvedValue({ handDetected: true, fingerCount: 1 }),
+      detect: vi.fn().mockResolvedValue({ handDetected: true, fingerCount: 1, fullyInFrame: true }),
       close: vi.fn(),
     };
     const test = setup();
@@ -407,7 +415,7 @@ describe('OffscreenRuntime face-aware motion gate', () => {
 
   it('scans sparsely for a hand and tracks a found one more often', async () => {
     const handModel = {
-      detect: vi.fn().mockResolvedValue({ handDetected: false, fingerCount: 0 }),
+      detect: vi.fn().mockResolvedValue({ handDetected: false, fingerCount: 0, fullyInFrame: false }),
       close: vi.fn(),
     };
     const test = setup();
@@ -430,7 +438,7 @@ describe('OffscreenRuntime face-aware motion gate', () => {
     expect(handModel.detect).toHaveBeenCalledTimes(2);
 
     // Now a hand is present, so the shorter tracking interval applies.
-    handModel.detect.mockResolvedValue({ handDetected: true, fingerCount: 2 });
+    handModel.detect.mockResolvedValue({ handDetected: true, fingerCount: 2, fullyInFrame: true });
     await test.callbacks.shift()!(800);
     await flush();
     await test.callbacks.shift()!(950);
@@ -449,5 +457,100 @@ describe('OffscreenRuntime preview cost while hidden', () => {
 
     test.runtime.setVisibility(true);
     expect(test.sender.setEnabled).toHaveBeenLastCalledWith(true);
+  });
+});
+
+describe('OffscreenRuntime stray-hand protection', () => {
+  const flush = () => new Promise((resolve) => { setTimeout(resolve, 0); });
+
+  function handRuntime(frames: Array<{ handDetected: boolean; fingerCount: number; fullyInFrame: boolean }>) {
+    let call = 0;
+    const handModel = {
+      detect: vi.fn(async () => frames[Math.min(call++, frames.length - 1)]!),
+      close: vi.fn(),
+    };
+    const events = vi.fn().mockReturnValue([]);
+    const test = setup({ events });
+    test.dependencies.createHandLandmarker = vi.fn().mockResolvedValue(handModel);
+    test.dependencies.motion = { sample: vi.fn(() => 1), reset: vi.fn() };
+    return { test, handModel, events };
+  }
+
+  async function tick(test: ReturnType<typeof setup>, time: number) {
+    await test.callbacks.shift()!(time);
+    await flush();
+  }
+
+  it('ignores a hand the frame edge cuts off', async () => {
+    const { test, events } = handRuntime([{ handDetected: true, fingerCount: 3, fullyInFrame: false }]);
+    test.dependencies.classifier.mockReturnValue({ observation: 'NEUTRAL', blocker: 'NONE' });
+    await test.connect();
+
+    await tick(test, 100);
+    expect(events).toHaveBeenLastCalledWith('NEUTRAL', 100);
+    expect(test.sent.find((m) => m.type === 'DIAGNOSTIC')).toMatchObject({ observation: 'NEUTRAL' });
+  });
+
+  it('reads a hand once it is fully inside the frame', async () => {
+    const { test, events } = handRuntime([{ handDetected: true, fingerCount: 3, fullyInFrame: true }]);
+    test.dependencies.classifier.mockReturnValue({ observation: 'NEUTRAL', blocker: 'NONE' });
+    await test.connect();
+
+    await tick(test, 100);
+    expect(events).toHaveBeenLastCalledWith('HAND_3', 100);
+  });
+
+  it('will not command again until the hand leaves the frame', async () => {
+    const commandEvents = vi.fn()
+      .mockReturnValueOnce([{
+        type: 'COMMAND', gesture: 'HAND_3', command: 'OPEN_RELATED_3', commandId: 'once',
+      }])
+      .mockReturnValue([]);
+    const inShot = { handDetected: true, fingerCount: 3, fullyInFrame: true };
+    // A hand resting in shot: the count flickers to a fist and back, which used
+    // to re-arm the machine and fire again every couple of seconds.
+    const { test } = handRuntime([
+      inShot,
+      { handDetected: true, fingerCount: 0, fullyInFrame: true },
+      inShot,
+      inShot,
+    ]);
+    test.dependencies.classifier.mockReturnValue({ observation: 'NEUTRAL', blocker: 'NONE' });
+    test.machine.update = ((observation: Observation, time: number) => commandEvents(observation, time)) as never;
+    await test.connect();
+
+    await tick(test, 100);
+    expect(commandEvents).toHaveBeenLastCalledWith('HAND_3', 100);
+
+    // Still in shot, so every later frame must fall back to the eyes.
+    for (const time of [1_000, 2_000, 3_000]) {
+      await tick(test, time);
+      expect(commandEvents).toHaveBeenLastCalledWith('NEUTRAL', time);
+    }
+  });
+
+  it('re-arms hand control after the hand is gone', async () => {
+    const commandEvents = vi.fn()
+      .mockReturnValueOnce([{
+        type: 'COMMAND', gesture: 'HAND_2', command: 'OPEN_RELATED_2', commandId: 'once',
+      }])
+      .mockReturnValue([]);
+    const { test } = handRuntime([
+      { handDetected: true, fingerCount: 2, fullyInFrame: true },
+      { handDetected: false, fingerCount: 0, fullyInFrame: false },
+      { handDetected: true, fingerCount: 2, fullyInFrame: true },
+    ]);
+    test.dependencies.classifier.mockReturnValue({ observation: 'NEUTRAL', blocker: 'NONE' });
+    test.machine.update = ((observation: Observation, time: number) => commandEvents(observation, time)) as never;
+    await test.connect();
+
+    await tick(test, 100);
+    expect(commandEvents).toHaveBeenLastCalledWith('HAND_2', 100);
+
+    await tick(test, 1_000);
+    expect(commandEvents).toHaveBeenLastCalledWith('NEUTRAL', 1_000);
+
+    await tick(test, 2_000);
+    expect(commandEvents).toHaveBeenLastCalledWith('HAND_2', 2_000);
   });
 });
