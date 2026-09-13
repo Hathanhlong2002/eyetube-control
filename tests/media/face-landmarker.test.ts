@@ -115,3 +115,65 @@ describe('FaceLandmarkerAdapter', () => {
     expect(MIN_INFERENCE_FPS).toBe(10);
   });
 });
+
+describe('eye visibility reported by the Face Landmarker model', () => {
+  function withVisibility(visibility?: number): FaceLandmarkerResultLike {
+    const base = result();
+    return {
+      ...base,
+      faceLandmarks: [base.faceLandmarks[0]!.map(({ x, y }) => (
+        visibility === undefined ? { x, y, z: 0 } : { x, y, z: 0, visibility }
+      ))],
+    };
+  }
+
+  async function detectWith(model: FaceLandmarkerResultLike) {
+    const adapter = await createFaceLandmarkerAdapter({
+      getUrl: (path) => path,
+      create: async () => ({ detectForVideo: () => model, close: vi.fn() }),
+      readBrightness: () => 0.6,
+      now: () => 0,
+    });
+    const video = { readyState: 4, videoWidth: 640, videoHeight: 480 } as HTMLVideoElement;
+    return adapter.detect(video, 1);
+  }
+
+  // The model leaves visibility at 0 on every landmark; averaging those zeros in
+  // used to drive eyeVisibility to 0 and reject every real face as EYES_UNCLEAR.
+  it('treats an all-zero visibility field as "not reported"', async () => {
+    expect((await detectWith(withVisibility(0))).eyeVisibility).toBe(1);
+  });
+
+  it('treats a missing visibility field as "not reported"', async () => {
+    expect((await detectWith(withVisibility())).eyeVisibility).toBe(1);
+  });
+
+  it('still averages a genuine visibility signal', async () => {
+    expect((await detectWith(withVisibility(0.4))).eyeVisibility).toBeCloseTo(0.4, 5);
+  });
+});
+
+describe('brightness sampling cadence', () => {
+  it('reads brightness on its own slow cadence, not once per inference', async () => {
+    const readBrightness = vi.fn().mockReturnValue(0.6);
+    let clock = 0;
+    const adapter = await createFaceLandmarkerAdapter({
+      getUrl: (path) => path,
+      create: async () => ({ detectForVideo: () => result(), close: vi.fn() }),
+      readBrightness,
+      now: () => clock,
+    });
+    const video = { readyState: 4, videoWidth: 640, videoHeight: 480 } as HTMLVideoElement;
+
+    // Six inferences spread across 400 ms stay inside one brightness window.
+    for (let index = 1; index <= 6; index += 1) {
+      clock = index * 80;
+      await adapter.detect(video, index * 80);
+    }
+    expect(readBrightness).toHaveBeenCalledTimes(1);
+
+    clock = 900;
+    await adapter.detect(video, 900);
+    expect(readBrightness).toHaveBeenCalledTimes(2);
+  });
+});

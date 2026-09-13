@@ -33,20 +33,31 @@ describe('GestureMachine', () => {
 
   it.each([
     ['WINK_RIGHT', 'NEXT_VIDEO'],
-    ['WINK_LEFT', 'TOGGLE_PLAYBACK'],
+    ['WINK_LEFT', 'PREVIOUS_VIDEO'],
   ] as const)('maps %s to %s after the navigation hold', (gesture, command) => {
     const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
-    expect(hold(machine, gesture, 0, 700)).toContainEqual(expect.objectContaining({ type: 'COMMAND', command }));
+    machine.update(gesture, 0);
+    expect(commands(machine.update(gesture, 399))).toHaveLength(0);
+    expect(machine.update(gesture, 400)).toContainEqual(expect.objectContaining({ type: 'COMMAND', command }));
   });
 
-  it.each([
-    ['GAZE_UP', 'LIKE_VIDEO'],
-    ['GAZE_DOWN', 'SUBSCRIBE_CHANNEL'],
-  ] as const)('requires the longer account hold for %s', (gesture, command) => {
+  it('keeps play/pause clear of a natural blink', () => {
     const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
-    machine.update(gesture, 0);
-    expect(commands(machine.update(gesture, 1_999))).toHaveLength(0);
-    expect(machine.update(gesture, 2_000)).toContainEqual(expect.objectContaining({ type: 'COMMAND', command }));
+    machine.update('BOTH_CLOSED', 0);
+    // A long natural blink tops out near 400 ms and must not fire.
+    expect(commands(machine.update('BOTH_CLOSED', 400))).toHaveLength(0);
+    expect(machine.update('BOTH_CLOSED', 700)).toContainEqual(expect.objectContaining({
+      type: 'COMMAND', command: 'TOGGLE_PLAYBACK',
+    }));
+  });
+
+  it('requires the longer account hold for GAZE_UP', () => {
+    const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
+    machine.update('GAZE_UP', 0);
+    expect(commands(machine.update('GAZE_UP', 1_199))).toHaveLength(0);
+    expect(machine.update('GAZE_UP', 1_200)).toContainEqual(expect.objectContaining({
+      type: 'COMMAND', command: 'LIKE_VIDEO',
+    }));
   });
 
   it.each(['UNCERTAIN', 'NO_FACE'] as const)('%s cancels an active hold', (observation) => {
@@ -113,5 +124,54 @@ describe('GestureMachine', () => {
     expect(machine.update('WINK_RIGHT', 800)).toEqual([]);
     machine.update('NEUTRAL', 900);
     expect(machine.update('WINK_RIGHT', 901)).toContainEqual(expect.objectContaining({ type: 'PROGRESS' }));
+  });
+});
+
+describe('GestureMachine rearm safety valves', () => {
+  it('arms after one second of face presence when NEUTRAL never arrives', () => {
+    const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
+    machine.reset();
+
+    // An eyelid parked between the open and closed thresholds classifies as
+    // UNCERTAIN forever; the session must still become usable.
+    expect(machine.update('UNCERTAIN', 0)).toEqual([]);
+    expect(machine.update('UNCERTAIN', 999)).toEqual([]);
+    expect(machine.update('UNCERTAIN', 1_000)).toEqual([]);
+    expect(machine.update('WINK_RIGHT', 1_001)).toContainEqual({
+      type: 'PROGRESS', gesture: 'WINK_RIGHT', progress: 0,
+    });
+  });
+
+  it('does not arm from presence while the face is absent', () => {
+    const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
+    machine.reset();
+
+    machine.update('NO_FACE', 0);
+    machine.update('NO_FACE', 5_000);
+    expect(machine.update('WINK_RIGHT', 5_001)).toEqual([]);
+  });
+
+  it('escapes cooldown when no clean neutral is ever observed', () => {
+    const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
+    hold(machine, 'BOTH_CLOSED', 0, 700);
+
+    expect(commands(machine.update('BOTH_CLOSED', 1_500))).toHaveLength(0);
+    machine.update('UNCERTAIN', 3_500);
+    expect(machine.update('BOTH_CLOSED', 3_501)).toContainEqual({
+      type: 'PROGRESS', gesture: 'BOTH_CLOSED', progress: 0,
+    });
+  });
+
+  it('applies popup settings to a running machine', () => {
+    const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
+    machine.configure({ navigationHoldMs: 1_000, enabledGestures: { WINK_RIGHT: false } as never });
+
+    expect(machine.update('WINK_RIGHT', 0)).toEqual([]);
+    machine.configure({ enabledGestures: { WINK_RIGHT: true } as never });
+    machine.update('WINK_LEFT', 100);
+    expect(commands(machine.update('WINK_LEFT', 900))).toHaveLength(0);
+    expect(machine.update('WINK_LEFT', 1_100)).toContainEqual(expect.objectContaining({
+      type: 'COMMAND', command: 'PREVIOUS_VIDEO',
+    }));
   });
 });

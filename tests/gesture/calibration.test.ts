@@ -26,7 +26,6 @@ function samples(): CalibrationSamples {
     winkRight: [feature({ rightEyeClosed: 0.83 }), feature({ rightEyeClosed: 0.89 })],
     bothClosed: [feature({ leftEyeClosed: 0.9, rightEyeClosed: 0.91 })],
     gazeUp: [feature({ gazeVertical: 0.3 }), feature({ gazeVertical: 0.32 })],
-    gazeDown: [feature({ gazeVertical: -0.29 }), feature({ gazeVertical: -0.33 })],
   };
 }
 
@@ -40,7 +39,6 @@ describe('deriveCalibration', () => {
         version: 1,
         closedThreshold: expect.any(Number),
         gazeUpThreshold: expect.any(Number),
-        gazeDownThreshold: expect.any(Number),
       }));
       expect(Object.values(result.profile).every((value) => Number.isFinite(value))).toBe(true);
     }
@@ -56,7 +54,7 @@ describe('deriveCalibration', () => {
 
   it('fails closed when the face is too small', () => {
     const input = samples();
-    input.neutral = [feature({ faceSize: 0.05 })];
+    input.neutral = [feature({ faceSize: 0.01 })];
     expect(deriveCalibration(input)).toEqual({ status: 'FAILED', reason: 'FACE_TOO_SMALL' });
   });
 

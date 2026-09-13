@@ -1,6 +1,6 @@
 import type { Command, Gesture } from '../contracts/messages';
 
-export type Observation = Gesture | 'NO_FACE' | 'NEUTRAL' | 'UNCERTAIN';
+export type { Observation } from '../contracts/messages';
 
 export type GestureEvent =
   | { type: 'PROGRESS'; gesture: Gesture; progress: number }
@@ -9,6 +9,7 @@ export type GestureEvent =
 
 export type GestureMachineSettings = {
   navigationHoldMs: number;
+  playPauseHoldMs: number;
   accountHoldMs: number;
   cooldownMs: number;
   neutralRearmMs: number;

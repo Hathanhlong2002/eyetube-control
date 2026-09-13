@@ -1,4 +1,5 @@
 import type { Command, Gesture } from '../contracts/messages';
+import type { MachineStateName } from '../contracts/status';
 import type { GestureEvent, GestureMachineSettings, Observation } from './types';
 
 type MachineState =
@@ -7,17 +8,27 @@ type MachineState =
   | { type: 'HOLDING'; gesture: Gesture; startedAt: number }
   | { type: 'COOLDOWN'; emittedAt: number; neutralSince: number | null };
 
+// The easiest gesture carries the most-used, self-correcting action; the
+// account-touching one carries the most deliberate gesture.
 const COMMAND_BY_GESTURE: Record<Gesture, Command> = {
-  WINK_RIGHT: 'NEXT_VIDEO',
-  WINK_LEFT: 'TOGGLE_PLAYBACK',
   BOTH_CLOSED: 'TOGGLE_PLAYBACK',
+  WINK_RIGHT: 'NEXT_VIDEO',
+  WINK_LEFT: 'PREVIOUS_VIDEO',
   GAZE_UP: 'LIKE_VIDEO',
-  GAZE_DOWN: 'SUBSCRIBE_CHANNEL',
 };
 
+// A face that never classifies as a clean NEUTRAL (glasses, side lighting, an
+// eyelid resting between the open and closed thresholds) must not strand the
+// machine: arm once the face has simply been present for this long.
+const PRESENCE_REARM_MS = 1_000;
+// Same guard for the cooldown state, which otherwise waits forever for a clean
+// neutral and makes eye control appear to work exactly once per session.
+const COOLDOWN_ESCAPE_MS = 2_000;
+
 export const DEFAULT_MACHINE_SETTINGS: GestureMachineSettings = {
-  navigationHoldMs: 250,
-  accountHoldMs: 2_000,
+  navigationHoldMs: 400,
+  playPauseHoldMs: 700,
+  accountHoldMs: 1_200,
   cooldownMs: 800,
   neutralRearmMs: 200,
   enabledGestures: {
@@ -25,9 +36,14 @@ export const DEFAULT_MACHINE_SETTINGS: GestureMachineSettings = {
     WINK_RIGHT: true,
     BOTH_CLOSED: true,
     GAZE_UP: true,
-    GAZE_DOWN: true,
   },
 };
+
+function holdMsFor(gesture: Gesture, settings: GestureMachineSettings): number {
+  if (gesture === 'BOTH_CLOSED') return settings.playPauseHoldMs;
+  if (gesture === 'GAZE_UP') return settings.accountHoldMs;
+  return settings.navigationHoldMs;
+}
 
 function isGesture(observation: Observation): observation is Gesture {
   return observation !== 'NO_FACE' && observation !== 'NEUTRAL' && observation !== 'UNCERTAIN';
@@ -36,12 +52,37 @@ function isGesture(observation: Observation): observation is Gesture {
 export class GestureMachine {
   #state: MachineState = { type: 'READY' };
   #lastTimestamp: number | null = null;
+  #presenceSince: number | null = null;
+  #settings: GestureMachineSettings;
 
-  constructor(private readonly settings: GestureMachineSettings) {}
+  constructor(settings: GestureMachineSettings) {
+    this.#settings = { ...settings, enabledGestures: { ...settings.enabledGestures } };
+  }
+
+  get stateName(): MachineStateName {
+    return this.#state.type;
+  }
+
+  get settings(): GestureMachineSettings {
+    return this.#settings;
+  }
+
+  /** Applies popup settings to a running session without dropping the camera. */
+  configure(settings: Partial<GestureMachineSettings>): void {
+    this.#settings = {
+      ...this.#settings,
+      ...settings,
+      enabledGestures: {
+        ...this.#settings.enabledGestures,
+        ...(settings.enabledGestures ?? {}),
+      },
+    };
+  }
 
   reset(): void {
     this.#state = { type: 'SEARCHING' };
     this.#lastTimestamp = null;
+    this.#presenceSince = null;
   }
 
   update(observation: Observation, timestampMs: number): GestureEvent[] {
@@ -51,12 +92,18 @@ export class GestureMachine {
       const wasHolding = this.#state.type === 'HOLDING';
       this.#state = { type: 'SEARCHING' };
       this.#lastTimestamp = Number.isFinite(timestampMs) && timestampMs >= 0 ? timestampMs : null;
+      this.#presenceSince = null;
       return wasHolding ? [{ type: 'CANCELLED' }] : [];
     }
     this.#lastTimestamp = timestampMs;
 
+    if (observation === 'NO_FACE') this.#presenceSince = null;
+    else this.#presenceSince ??= timestampMs;
+
     if (this.#state.type === 'SEARCHING') {
-      if (observation === 'NEUTRAL') this.#state = { type: 'READY' };
+      const presentLongEnough = this.#presenceSince !== null
+        && timestampMs - this.#presenceSince >= PRESENCE_REARM_MS;
+      if (observation === 'NEUTRAL' || presentLongEnough) this.#state = { type: 'READY' };
       return [];
     }
 
@@ -65,13 +112,15 @@ export class GestureMachine {
         this.#state = { type: 'SEARCHING' };
         return [];
       }
+      const elapsed = timestampMs - this.#state.emittedAt;
       if (observation !== 'NEUTRAL') {
         this.#state.neutralSince = null;
+        if (elapsed >= this.#settings.cooldownMs + COOLDOWN_ESCAPE_MS) this.#state = { type: 'READY' };
         return [];
       }
       this.#state.neutralSince ??= timestampMs;
-      if (timestampMs - this.#state.emittedAt >= this.settings.cooldownMs
-        && timestampMs - this.#state.neutralSince >= this.settings.neutralRearmMs) {
+      if (elapsed >= this.#settings.cooldownMs
+        && timestampMs - this.#state.neutralSince >= this.#settings.neutralRearmMs) {
         this.#state = { type: 'READY' };
       }
       return [];
@@ -79,7 +128,7 @@ export class GestureMachine {
 
     if (this.#state.type === 'READY') {
       if (observation === 'NO_FACE') this.#state = { type: 'SEARCHING' };
-      else if (isGesture(observation) && this.settings.enabledGestures[observation]) {
+      else if (isGesture(observation) && this.#settings.enabledGestures[observation]) {
         this.#state = { type: 'HOLDING', gesture: observation, startedAt: timestampMs };
         return [{ type: 'PROGRESS', gesture: observation, progress: 0 }];
       }
@@ -87,7 +136,7 @@ export class GestureMachine {
     }
 
     const holding = this.#state;
-    if (!isGesture(observation) || !this.settings.enabledGestures[observation]) {
+    if (!isGesture(observation) || !this.#settings.enabledGestures[observation]) {
       this.#state = observation === 'NO_FACE' ? { type: 'SEARCHING' } : { type: 'READY' };
       return [{ type: 'CANCELLED' }];
     }
@@ -100,9 +149,7 @@ export class GestureMachine {
       ];
     }
 
-    const holdMs = observation === 'GAZE_UP' || observation === 'GAZE_DOWN'
-      ? this.settings.accountHoldMs
-      : this.settings.navigationHoldMs;
+    const holdMs = holdMsFor(observation, this.#settings);
     const progress = Math.min(1, Math.max(0, (timestampMs - holding.startedAt) / holdMs));
     const events: GestureEvent[] = [{ type: 'PROGRESS', gesture: observation, progress }];
     if (progress === 1) {

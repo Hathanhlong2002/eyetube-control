@@ -7,6 +7,8 @@ import {
 import type { FaceFeatures } from '../gesture/classifier';
 
 export const INFERENCE_INTERVAL_MS = 1000 / 15;
+/** Room lighting changes far more slowly than the inference loop runs. */
+export const BRIGHTNESS_INTERVAL_MS = 500;
 export const MIN_INFERENCE_FPS = 10;
 
 type LandmarkLike = {
@@ -86,9 +88,12 @@ function extractFeatures(result: FaceLandmarkerResultLike, brightness: number): 
   const nose = landmarks[1];
   const centerX = (minX + maxX) / 2;
   const centerY = (minY + maxY) / 2;
+  // The Face Landmarker model does not estimate visibility and reports 0 for
+  // every landmark, so a zero means "not reported", not "eye hidden". Averaging
+  // those zeros in would reject every real face.
   const visibility = landmarks
     .map((point) => point.visibility)
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0);
   const lookUp = mean([score(categories, 'eyeLookUpLeft'), score(categories, 'eyeLookUpRight')]);
   const lookDown = mean([score(categories, 'eyeLookDownLeft'), score(categories, 'eyeLookDownRight')]);
 
@@ -121,6 +126,22 @@ function readBrightness(video: HTMLVideoElement): number {
   return luminance / (pixels.length / 4) / 255;
 }
 
+// Only the SIMD build is shipped. FilesetResolver derives the filename from
+// WebAssembly SIMD support, so on a CPU without it the loader would silently
+// request a file that is not packaged; fail with a readable reason instead.
+const SIMD_PROBE = new Uint8Array([
+  0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0,
+  10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11,
+]);
+
+function hasWasmSimd(): boolean {
+  try {
+    return WebAssembly.validate(SIMD_PROBE);
+  } catch {
+    return false;
+  }
+}
+
 const DEFAULT_DEPENDENCIES: FaceLandmarkerDependencies = {
   getUrl: (path) => chrome.runtime.getURL(path),
   create: async (wasmRoot, options) => {
@@ -139,6 +160,8 @@ class LocalFaceLandmarkerAdapter implements FaceLandmarkerAdapter {
   #overruns = 0;
   #closed = false;
   #inFlight: Promise<FaceFeatures> | null = null;
+  #brightness = 0;
+  #brightnessAt: number | null = null;
 
   constructor(
     private readonly landmarker: LandmarkerLike,
@@ -166,7 +189,13 @@ class LocalFaceLandmarkerAdapter implements FaceLandmarkerAdapter {
       try {
         const startedAt = this.dependencies.now();
         const result = this.landmarker.detectForVideo(video, timestampMs);
-        const features = extractFeatures(result, this.dependencies.readBrightness(video));
+        // Reading brightness pulls a frame back from the GPU, so it is sampled
+        // on its own slow cadence rather than once per inference.
+        if (this.#brightnessAt === null || startedAt - this.#brightnessAt >= BRIGHTNESS_INTERVAL_MS) {
+          this.#brightness = this.dependencies.readBrightness(video);
+          this.#brightnessAt = startedAt;
+        }
+        const features = extractFeatures(result, this.#brightness);
         const duration = this.dependencies.now() - startedAt;
         this.#overruns = duration > this.#intervalMs ? this.#overruns + 1 : 0;
         if (this.#overruns >= 3) this.#intervalMs = 1000 / MIN_INFERENCE_FPS;
@@ -198,6 +227,9 @@ export async function createFaceLandmarkerAdapter(
   dependencies: Partial<FaceLandmarkerDependencies> = {},
 ): Promise<FaceLandmarkerAdapter> {
   const resolved = { ...DEFAULT_DEPENDENCIES, ...dependencies };
+  if (!hasWasmSimd()) {
+    throw new Error('This CPU lacks WebAssembly SIMD, which the bundled vision runtime requires');
+  }
   const wasmRoot = resolved.getUrl('wasm');
   const modelAssetPath = resolved.getUrl('models/face_landmarker.task');
   console.log('[EyeTube AI] ⏳ Bắt đầu tải mô hình MediaPipe FaceLandmarker từ:', modelAssetPath);
