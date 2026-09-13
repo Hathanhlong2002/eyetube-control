@@ -12,9 +12,9 @@ export type EyeControlSettings = {
 };
 
 export const SETTINGS_LIMITS = {
-  navigationHoldMs: { min: 600, max: 1500, default: 700 },
+  navigationHoldMs: { min: 200, max: 1000, default: 300 },
   accountHoldMs: { min: 1500, max: 4000, default: 2000 },
-  cooldownMs: { min: 1000, max: 3000, default: 1500 },
+  cooldownMs: { min: 400, max: 2000, default: 800 },
 } as const;
 
 export const DEFAULT_SETTINGS: EyeControlSettings = {

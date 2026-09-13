@@ -9,17 +9,17 @@ type MachineState =
 
 const COMMAND_BY_GESTURE: Record<Gesture, Command> = {
   WINK_RIGHT: 'NEXT_VIDEO',
-  WINK_LEFT: 'PREVIOUS_VIDEO',
+  WINK_LEFT: 'TOGGLE_PLAYBACK',
   BOTH_CLOSED: 'TOGGLE_PLAYBACK',
   GAZE_UP: 'LIKE_VIDEO',
   GAZE_DOWN: 'SUBSCRIBE_CHANNEL',
 };
 
 export const DEFAULT_MACHINE_SETTINGS: GestureMachineSettings = {
-  navigationHoldMs: 700,
+  navigationHoldMs: 300,
   accountHoldMs: 2_000,
-  cooldownMs: 1_500,
-  neutralRearmMs: 300,
+  cooldownMs: 800,
+  neutralRearmMs: 200,
   enabledGestures: {
     WINK_LEFT: true,
     WINK_RIGHT: true,

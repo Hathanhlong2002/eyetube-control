@@ -33,7 +33,7 @@ describe('GestureMachine', () => {
 
   it.each([
     ['WINK_RIGHT', 'NEXT_VIDEO'],
-    ['WINK_LEFT', 'PREVIOUS_VIDEO'],
+    ['WINK_LEFT', 'TOGGLE_PLAYBACK'],
   ] as const)('maps %s to %s after the navigation hold', (gesture, command) => {
     const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
     expect(hold(machine, gesture, 0, 700)).toContainEqual(expect.objectContaining({ type: 'COMMAND', command }));

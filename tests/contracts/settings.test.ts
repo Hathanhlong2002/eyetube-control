@@ -15,14 +15,14 @@ describe('parseSettings', () => {
     expect(parseSettings({ ...DEFAULT_SETTINGS, accountHoldMs: 10000 }).accountHoldMs).toBe(4000);
   });
 
-  it('clamps navigation hold duration to safe range [600, 1500]', () => {
-    expect(parseSettings({ ...DEFAULT_SETTINGS, navigationHoldMs: 200 }).navigationHoldMs).toBe(600);
-    expect(parseSettings({ ...DEFAULT_SETTINGS, navigationHoldMs: 5000 }).navigationHoldMs).toBe(1500);
+  it('clamps navigation hold duration to safe range [200, 1000]', () => {
+    expect(parseSettings({ ...DEFAULT_SETTINGS, navigationHoldMs: 50 }).navigationHoldMs).toBe(200);
+    expect(parseSettings({ ...DEFAULT_SETTINGS, navigationHoldMs: 5000 }).navigationHoldMs).toBe(1000);
   });
 
-  it('clamps cooldown to safe range [1000, 3000]', () => {
-    expect(parseSettings({ ...DEFAULT_SETTINGS, cooldownMs: 100 }).cooldownMs).toBe(1000);
-    expect(parseSettings({ ...DEFAULT_SETTINGS, cooldownMs: 9000 }).cooldownMs).toBe(3000);
+  it('clamps cooldown to safe range [400, 2000]', () => {
+    expect(parseSettings({ ...DEFAULT_SETTINGS, cooldownMs: 100 }).cooldownMs).toBe(400);
+    expect(parseSettings({ ...DEFAULT_SETTINGS, cooldownMs: 9000 }).cooldownMs).toBe(2000);
   });
 
   it('drops unknown persisted fields', () => {

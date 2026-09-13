@@ -29,8 +29,8 @@ export type CalibrationProfile = {
 
 export const DEFAULT_CALIBRATION_PROFILE: CalibrationProfile = {
   version: 1,
-  closedThreshold: 0.60,
-  openThreshold: 0.35,
+  closedThreshold: 0.50,
+  openThreshold: 0.40,
   gazeUpThreshold: 0.2,
   gazeDownThreshold: -0.2,
   confidenceFloor: 0.7,
@@ -63,8 +63,15 @@ export function classify(features: FaceFeatures, profile: CalibrationProfile): O
   const rightOpen = features.rightEyeClosed <= profile.openThreshold;
 
   if (leftClosed && rightClosed) return 'BOTH_CLOSED';
-  if (leftClosed && rightOpen) return 'WINK_LEFT';
-  if (rightClosed && leftOpen) return 'WINK_RIGHT';
+
+  // Wink detection: one eye closed while opposing eye open, or distinct asymmetry
+  const isWinkLeft = (leftClosed && rightOpen)
+    || (features.leftEyeClosed >= 0.45 && (features.leftEyeClosed - features.rightEyeClosed) >= 0.20);
+  const isWinkRight = (rightClosed && leftOpen)
+    || (features.rightEyeClosed >= 0.45 && (features.rightEyeClosed - features.leftEyeClosed) >= 0.20);
+
+  if (isWinkLeft && !isWinkRight) return 'WINK_LEFT';
+  if (isWinkRight && !isWinkLeft) return 'WINK_RIGHT';
   if (!leftOpen || !rightOpen) return 'UNCERTAIN';
 
   if (features.gazeVertical >= profile.gazeUpThreshold) return 'GAZE_UP';

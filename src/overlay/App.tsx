@@ -7,7 +7,7 @@ import { clampTileGeometry, defaultTileGeometry, moveTile, resizeTile, type Tile
 import styles from './style.css?inline';
 
 const GESTURE_TEXT: Record<Gesture, string> = {
-  WINK_LEFT: 'Hold left wink for previous video',
+  WINK_LEFT: 'Hold left wink to play or pause',
   WINK_RIGHT: 'Hold right wink for next video',
   BOTH_CLOSED: 'Hold both eyes closed to play or pause',
   GAZE_UP: 'Hold look up to like',
@@ -15,7 +15,7 @@ const GESTURE_TEXT: Record<Gesture, string> = {
 };
 
 const GESTURE_ACTION: Record<Gesture, string> = {
-  WINK_LEFT: 'Previous video',
+  WINK_LEFT: 'Play or pause',
   WINK_RIGHT: 'Next video',
   BOTH_CLOSED: 'Play or pause',
   GAZE_UP: 'Like video',
