@@ -31,6 +31,11 @@ const GESTURE_LABELS: Record<Gesture, { label: string; action: string }> = {
   WINK_RIGHT: { label: 'Wink Right', action: 'Next video' },
   WINK_LEFT: { label: 'Wink Left', action: 'Previous video' },
   GAZE_UP: { label: 'Look Up', action: 'Like video' },
+  HAND_1: { label: '1 Finger', action: 'Video 1 on the right' },
+  HAND_2: { label: '2 Fingers', action: 'Video 2 on the right' },
+  HAND_3: { label: '3 Fingers', action: 'Video 3 on the right' },
+  HAND_4: { label: '4 Fingers', action: 'Video 4 on the right' },
+  HAND_5: { label: '5 Fingers', action: 'Video 5 on the right' },
 };
 
 function statusLabel(status: RuntimeStatus, reason?: StatusReason): string {
@@ -99,7 +104,7 @@ export const PopupApp: React.FC<PopupAppProps> = ({
   };
 
   const handleDurationChange = (
-    key: 'navigationHoldMs' | 'playPauseHoldMs' | 'accountHoldMs' | 'cooldownMs',
+    key: 'navigationHoldMs' | 'playPauseHoldMs' | 'handHoldMs' | 'accountHoldMs' | 'cooldownMs',
     value: number,
   ) => {
     onSettingsChange({
@@ -287,6 +292,18 @@ export const PopupApp: React.FC<PopupAppProps> = ({
             step={50}
             value={settings.navigationHoldMs}
             onChange={(e) => handleDurationChange('navigationHoldMs', Number(e.target.value))}
+          />
+        </div>
+        <div className="range-item">
+          <label htmlFor="hand-hold">Hand Gesture Hold: {settings.handHoldMs} ms</label>
+          <input
+            id="hand-hold"
+            type="range"
+            min={SETTINGS_LIMITS.handHoldMs.min}
+            max={SETTINGS_LIMITS.handHoldMs.max}
+            step={50}
+            value={settings.handHoldMs}
+            onChange={(e) => handleDurationChange('handHoldMs', Number(e.target.value))}
           />
         </div>
         <div className="range-item">

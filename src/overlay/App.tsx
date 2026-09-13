@@ -11,6 +11,11 @@ const GESTURE_TEXT: Record<Gesture, string> = {
   WINK_RIGHT: 'Hold right wink for the next video',
   BOTH_CLOSED: 'Hold both eyes closed to play or pause',
   GAZE_UP: 'Hold look up to like',
+  HAND_1: 'Hold 1 finger up for video 1 on the right',
+  HAND_2: 'Hold 2 fingers up for video 2 on the right',
+  HAND_3: 'Hold 3 fingers up for video 3 on the right',
+  HAND_4: 'Hold 4 fingers up for video 4 on the right',
+  HAND_5: 'Hold 5 fingers up for video 5 on the right',
 };
 
 const GESTURE_ACTION: Record<Gesture, string> = {
@@ -18,6 +23,11 @@ const GESTURE_ACTION: Record<Gesture, string> = {
   WINK_RIGHT: 'Next video',
   BOTH_CLOSED: 'Play or pause',
   GAZE_UP: 'Like video',
+  HAND_1: 'Video 1 on the right',
+  HAND_2: 'Video 2 on the right',
+  HAND_3: 'Video 3 on the right',
+  HAND_4: 'Video 4 on the right',
+  HAND_5: 'Video 5 on the right',
 };
 
 const COMMAND_TEXT: Record<Command, string> = {
@@ -25,6 +35,11 @@ const COMMAND_TEXT: Record<Command, string> = {
   PREVIOUS_VIDEO: 'Previous video',
   TOGGLE_PLAYBACK: 'Play or pause',
   LIKE_VIDEO: 'Like video',
+  OPEN_RELATED_1: 'Video 1 on the right',
+  OPEN_RELATED_2: 'Video 2 on the right',
+  OPEN_RELATED_3: 'Video 3 on the right',
+  OPEN_RELATED_4: 'Video 4 on the right',
+  OPEN_RELATED_5: 'Video 5 on the right',
 };
 
 const STATUS_TEXT: Record<RuntimeStatus, string> = {

@@ -24,6 +24,22 @@ export function uniqueUsable<T extends Element>(root: ParentNode, selector: stri
   return [...new Set(root.querySelectorAll<T>(selector))].filter(isUsable);
 }
 
+/**
+ * The sidebar renders two anchors per entry (thumbnail and title), so the Nth
+ * anchor is not the Nth video. Collapse them by video id, keeping DOM order.
+ */
+export function relatedVideoLinks(root: ParentNode): HTMLAnchorElement[] {
+  const seen = new Set<string>();
+  const links: HTMLAnchorElement[] = [];
+  for (const link of uniqueUsable<HTMLAnchorElement>(root, YOUTUBE_SELECTORS.relatedVideo)) {
+    const match = /[?&]v=([\w-]+)/.exec(link.getAttribute('href') ?? '');
+    if (!match?.[1] || seen.has(match[1])) continue;
+    seen.add(match[1]);
+    links.push(link);
+  }
+  return links;
+}
+
 export function isWatchPageReady(root: ParentNode): boolean {
   return root.querySelector(YOUTUBE_SELECTORS.watchRoot) !== null
     || root.querySelector('video') !== null

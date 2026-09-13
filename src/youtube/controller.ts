@@ -3,9 +3,18 @@ import type { CommandResult } from '../contracts/status';
 import {
   isSignedIn,
   isWatchPageReady,
+  relatedVideoLinks,
   uniqueUsable,
   YOUTUBE_SELECTORS,
 } from './semantics';
+
+const RELATED_POSITION: Partial<Record<Command, number>> = {
+  OPEN_RELATED_1: 1,
+  OPEN_RELATED_2: 2,
+  OPEN_RELATED_3: 3,
+  OPEN_RELATED_4: 4,
+  OPEN_RELATED_5: 5,
+};
 
 export interface YouTubeController {
   execute(command: Command, commandId: string): Promise<CommandResult>;
@@ -66,11 +75,18 @@ class LocalYouTubeController implements YouTubeController {
       return { status: 'EXECUTED', command };
     }
 
+    const position = RELATED_POSITION[command];
+    if (position !== undefined) {
+      const target = relatedVideoLinks(this.root)[position - 1];
+      if (!target) return unavailable(command, 'NO_CONTROL');
+      target.click();
+      return { status: 'EXECUTED', command };
+    }
+
     if (command === 'NEXT_VIDEO') {
       // Prefer the first video in the right-hand column: on an ordinary watch
       // page the player's next button is display:none and does nothing.
-      const related = uniqueUsable<HTMLAnchorElement>(this.root, YOUTUBE_SELECTORS.relatedVideo);
-      const target = related.find((link) => /[?&]v=/.test(link.getAttribute('href') ?? ''));
+      const target = relatedVideoLinks(this.root)[0];
       if (target) {
         target.click();
         return { status: 'EXECUTED', command };
@@ -91,6 +107,7 @@ class LocalYouTubeController implements YouTubeController {
     }
 
     if (!isSignedIn(this.root)) return unavailable(command, 'NOT_SIGNED_IN');
+    if (command !== 'LIKE_VIDEO') return unavailable(command, 'NO_CONTROL');
 
     const containers = uniqueUsable<HTMLElement>(this.root, YOUTUBE_SELECTORS.likeContainer);
     if (containers.length !== 1) return containers.length === 0

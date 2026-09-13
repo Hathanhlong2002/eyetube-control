@@ -190,3 +190,50 @@ describe('YouTubeController', () => {
     expect(next.click).toHaveBeenCalledTimes(101);
   });
 });
+
+describe('YouTubeController hand-picked related videos', () => {
+  beforeEach(() => loadFixture('watch'));
+
+  it('counts sidebar entries by video, not by anchor', async () => {
+    // The first entry renders a thumbnail anchor and a title anchor for the
+    // same video, so "second video" must not mean "second anchor".
+    const anchors = [...document.querySelectorAll<HTMLAnchorElement>('#related a')];
+    anchors.forEach((anchor) => { anchor.click = vi.fn(); });
+
+    await expect(createYouTubeController(document).execute('OPEN_RELATED_2', 'cmd-r2')).resolves.toEqual({
+      status: 'EXECUTED', command: 'OPEN_RELATED_2',
+    });
+    const second = anchors.find((a) => a.getAttribute('href') === '/watch?v=second-related')!;
+    expect(second.click).toHaveBeenCalledOnce();
+    anchors.filter((a) => a !== second).forEach((a) => expect(a.click).not.toHaveBeenCalled());
+  });
+
+  it('opens the first sidebar video for a single finger', async () => {
+    const first = document.querySelector<HTMLAnchorElement>('#related a')!;
+    first.click = vi.fn();
+
+    await expect(createYouTubeController(document).execute('OPEN_RELATED_1', 'cmd-r1')).resolves.toEqual({
+      status: 'EXECUTED', command: 'OPEN_RELATED_1',
+    });
+    expect(first.click).toHaveBeenCalledOnce();
+  });
+
+  it('reports unavailable when the sidebar is shorter than the finger count', async () => {
+    await expect(createYouTubeController(document).execute('OPEN_RELATED_5', 'cmd-r5')).resolves.toEqual({
+      status: 'UNAVAILABLE', command: 'OPEN_RELATED_5', reason: 'NO_CONTROL',
+    });
+  });
+
+  it('does not require a signed-in account to pick a sidebar video', async () => {
+    loadFixture('signed-out');
+    document.body.insertAdjacentHTML('beforeend',
+      '<div id="related"><a href="/watch?v=abc">a</a></div>');
+    const link = document.querySelector<HTMLAnchorElement>('#related a')!;
+    link.click = vi.fn();
+
+    await expect(createYouTubeController(document).execute('OPEN_RELATED_1', 'cmd-signed-out')).resolves.toEqual({
+      status: 'EXECUTED', command: 'OPEN_RELATED_1',
+    });
+    expect(link.click).toHaveBeenCalledOnce();
+  });
+});
