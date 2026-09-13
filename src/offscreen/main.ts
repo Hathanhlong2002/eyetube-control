@@ -4,6 +4,7 @@ import { DEFAULT_MACHINE_SETTINGS, GestureMachine } from '../gesture/machine';
 import { CameraSession } from '../media/camera-session';
 import { createFaceLandmarkerAdapter } from '../media/face-landmarker';
 import { createMotionSampler } from '../media/frame-motion';
+import { createFrameScaler } from '../media/frame-scaler';
 import { createHandLandmarkerAdapter } from '../media/hand-landmarker';
 import { createPreviewSender } from '../media/local-preview-peer';
 import { OffscreenRuntime } from './runtime';
@@ -23,6 +24,7 @@ const runtime = new OffscreenRuntime({
   createFaceLandmarker: () => createFaceLandmarkerAdapter(),
   createHandLandmarker: () => createHandLandmarkerAdapter(),
   motion: createMotionSampler(),
+  scaler: createFrameScaler(),
   classifier: (features) => classifyDetailed(features, DEFAULT_CALIBRATION_PROFILE),
   machine,
   video: cameraElement,

@@ -3,7 +3,6 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import type { RuntimeMessage } from '../../src/contracts/messages';
 import type { FaceFeatures } from '../../src/gesture/classifier';
 import type { GestureEvent, Observation } from '../../src/gesture/types';
-import type { MotionSampler } from '../../src/media/frame-motion';
 import {
   OffscreenRuntime,
   type FaceLandmarkerLike,
@@ -34,6 +33,7 @@ function setup(options: {
     acceptAnswer: vi.fn().mockResolvedValue(undefined),
     addRemoteCandidate: vi.fn().mockResolvedValue(true),
     onCandidate: vi.fn(),
+    setEnabled: vi.fn(),
     close: vi.fn(),
   };
   const model = { detect: vi.fn().mockResolvedValue(neutralFeatures), close: vi.fn() };
@@ -52,7 +52,8 @@ function setup(options: {
     createFaceLandmarker: vi.fn(options.createModel ?? (() => Promise.resolve(model))),
     // Assigned per test; the runtime reads it when the session connects.
     createHandLandmarker: undefined as undefined | (() => Promise<HandLandmarkerLike>),
-    motion: undefined as undefined | MotionSampler,
+    motion: undefined as undefined | { sample: Mock; reset: Mock },
+    scaler: undefined as undefined | { surface: Mock },
     classifier: vi.fn().mockReturnValue({ observation: 'NEUTRAL', blocker: 'NONE' } as const),
     machine,
     video: { srcObject: null } as unknown as HTMLVideoElement,
@@ -182,15 +183,37 @@ describe('OffscreenRuntime inference pacing', () => {
   it('samples slowly while the face sits neutral and speeds up on a gesture', async () => {
     const test = setup();
     await test.connect();
-    // Nothing observed yet, and a settled face, both sample slowly.
-    expect(test.delays.at(-1)).toBe(140);
+    // Nothing observed yet, and a settled face with open eyes, sample slowly.
+    expect(test.delays.at(-1)).toBe(220);
 
     await test.callbacks.shift()!(100);
-    expect(test.delays.at(-1)).toBe(140);
+    expect(test.delays.at(-1)).toBe(220);
 
     test.dependencies.classifier.mockReturnValue({ observation: 'WINK_RIGHT', blocker: 'NONE' });
     await test.callbacks.shift()!(200);
-    expect(test.delays.at(-1)).toBe(50);
+    expect(test.delays.at(-1)).toBe(66);
+  });
+
+  it('speeds up as soon as an eyelid starts to move, before any gesture is classified', async () => {
+    const test = setup();
+    await test.connect();
+    await test.callbacks.shift()!(100);
+    expect(test.delays.at(-1)).toBe(220);
+
+    // Still classified NEUTRAL, but an eye is already halfway shut.
+    test.model.detect.mockResolvedValue({ ...neutralFeatures, leftEyeClosed: 0.3 });
+    await test.callbacks.shift()!(200);
+    expect(test.delays.at(-1)).toBe(66);
+  });
+
+  it('speeds up when the gaze leaves centre', async () => {
+    const test = setup();
+    await test.connect();
+    await test.callbacks.shift()!(100);
+
+    test.model.detect.mockResolvedValue({ ...neutralFeatures, gazeVertical: 0.15 });
+    await test.callbacks.shift()!(200);
+    expect(test.delays.at(-1)).toBe(66);
   });
 
   it('does not resend a gesture progress value the overlay already shows', async () => {
@@ -318,5 +341,113 @@ describe('OffscreenRuntime hand tracking cost gate', () => {
     await test.callbacks.shift()!(900);
     await flush();
     expect(handModel.detect).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('OffscreenRuntime face-aware motion gate', () => {
+  const flush = () => new Promise((resolve) => { setTimeout(resolve, 0); });
+
+  it('asks the sampler to ignore the region the face occupies', async () => {
+    const handModel = {
+      detect: vi.fn().mockResolvedValue({ handDetected: false, fingerCount: 0 }),
+      close: vi.fn(),
+    };
+    const surface = {} as TexImageSource;
+    const test = setup();
+    test.dependencies.createHandLandmarker = vi.fn().mockResolvedValue(handModel);
+    test.dependencies.scaler = { surface: vi.fn(() => surface) };
+    test.dependencies.motion = { sample: vi.fn(() => 1), reset: vi.fn() };
+    await test.connect();
+
+    await test.callbacks.shift()!(100);
+    await flush();
+
+    // neutralFeatures has faceSize 0.3 centred in frame.
+    expect(test.dependencies.motion.sample).toHaveBeenCalledWith(surface, expect.objectContaining({
+      x: expect.any(Number), y: expect.any(Number), width: expect.any(Number), height: expect.any(Number),
+    }));
+    const [, region] = test.dependencies.motion.sample.mock.calls[0]!;
+    expect(region!.width).toBeCloseTo(Math.sqrt(0.3) * 1.6, 5);
+    expect(region!.x).toBeCloseTo(0.5 - region!.width / 2, 5);
+  });
+
+  it('feeds the hand model the downscaled surface, not the full frame', async () => {
+    const handModel = {
+      detect: vi.fn().mockResolvedValue({ handDetected: true, fingerCount: 1 }),
+      close: vi.fn(),
+    };
+    const surface = {} as TexImageSource;
+    const test = setup();
+    test.dependencies.createHandLandmarker = vi.fn().mockResolvedValue(handModel);
+    test.dependencies.scaler = { surface: vi.fn(() => surface) };
+    test.dependencies.motion = { sample: vi.fn(() => 1), reset: vi.fn() };
+    await test.connect();
+
+    await test.callbacks.shift()!(100);
+    await flush();
+    expect(handModel.detect).toHaveBeenCalledWith(surface, 100);
+  });
+
+  it('skips hand work entirely while the video has no frame to scale', async () => {
+    const handModel = {
+      detect: vi.fn().mockResolvedValue({ handDetected: true, fingerCount: 1 }),
+      close: vi.fn(),
+    };
+    const test = setup();
+    test.dependencies.createHandLandmarker = vi.fn().mockResolvedValue(handModel);
+    test.dependencies.scaler = { surface: vi.fn(() => null) };
+    test.dependencies.motion = { sample: vi.fn(() => 1), reset: vi.fn() };
+    await test.connect();
+
+    await test.callbacks.shift()!(100);
+    await flush();
+    expect(test.dependencies.motion.sample).not.toHaveBeenCalled();
+    expect(handModel.detect).not.toHaveBeenCalled();
+  });
+
+  it('scans sparsely for a hand and tracks a found one more often', async () => {
+    const handModel = {
+      detect: vi.fn().mockResolvedValue({ handDetected: false, fingerCount: 0 }),
+      close: vi.fn(),
+    };
+    const test = setup();
+    test.dependencies.createHandLandmarker = vi.fn().mockResolvedValue(handModel);
+    test.dependencies.scaler = { surface: vi.fn(() => ({} as TexImageSource)) };
+    test.dependencies.motion = { sample: vi.fn(() => 1), reset: vi.fn() };
+    await test.connect();
+
+    await test.callbacks.shift()!(100);
+    await flush();
+    expect(handModel.detect).toHaveBeenCalledTimes(1);
+
+    // 200 ms later is still inside the 300 ms scan interval.
+    await test.callbacks.shift()!(300);
+    await flush();
+    expect(handModel.detect).toHaveBeenCalledTimes(1);
+
+    await test.callbacks.shift()!(450);
+    await flush();
+    expect(handModel.detect).toHaveBeenCalledTimes(2);
+
+    // Now a hand is present, so the shorter tracking interval applies.
+    handModel.detect.mockResolvedValue({ handDetected: true, fingerCount: 2 });
+    await test.callbacks.shift()!(800);
+    await flush();
+    await test.callbacks.shift()!(950);
+    await flush();
+    expect(handModel.detect).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('OffscreenRuntime preview cost while hidden', () => {
+  it('pauses and resumes the preview encode with tab visibility', async () => {
+    const test = setup();
+    await test.connect();
+
+    test.runtime.setVisibility(false);
+    expect(test.sender.setEnabled).toHaveBeenLastCalledWith(false);
+
+    test.runtime.setVisibility(true);
+    expect(test.sender.setEnabled).toHaveBeenLastCalledWith(true);
   });
 });

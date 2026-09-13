@@ -2,13 +2,39 @@ import type { PreviewCandidate, PreviewDescription, RuntimeMessage } from '../co
 import type { DetectionBlocker, MachineStateName } from '../contracts/status';
 import type { Classification, FaceFeatures } from '../gesture/classifier';
 import type { HandFeatures } from '../media/hand-landmarker';
-import type { MotionSampler } from '../media/frame-motion';
+import type { ExcludedRegion, MotionSampler } from '../media/frame-motion';
+import type { FrameScaler } from '../media/frame-scaler';
 import type { GestureEvent, Observation } from '../gesture/types';
 import type { PreviewSender } from '../media/local-preview-peer';
 
-/** ~20 fps while a gesture is in flight, ~7 fps once the face settles. */
-const ACTIVE_FRAME_DELAY_MS = 50;
-const IDLE_FRAME_DELAY_MS = 140;
+/**
+ * Approximate face box in normalised frame coordinates, grown slightly so the
+ * jitter around its edges is excluded too.
+ */
+function faceRegion(face: FaceFeatures): ExcludedRegion | undefined {
+  if (!face.faceDetected || !Number.isFinite(face.faceSize) || face.faceSize <= 0) return undefined;
+  const edge = Math.min(1, Math.sqrt(face.faceSize) * 1.6);
+  const centreX = 0.5 + face.headYaw * edge;
+  const centreY = 0.5 + face.headPitch * edge;
+  return {
+    x: Math.max(0, centreX - edge / 2),
+    y: Math.max(0, centreY - edge / 2),
+    width: edge,
+    height: edge,
+  };
+}
+
+/**
+ * Frame pacing. There is no point sampling faster than the camera delivers, so
+ * the active rate matches the capture rate. The idle rate is much slower, and
+ * is left the moment an eyelid starts to move rather than once a gesture has
+ * already been classified - so a wink is never missed by sampling late.
+ */
+const ACTIVE_FRAME_DELAY_MS = 66;
+const IDLE_FRAME_DELAY_MS = 220;
+/** Eyelid score that counts as "an eye is on the move". */
+const EYE_STIRRING = 0.25;
+const GAZE_STIRRING = 0.12;
 
 export interface CameraSessionLike {
   start(deviceId?: string): Promise<MediaStream>;
@@ -21,7 +47,7 @@ export interface FaceLandmarkerLike {
 }
 
 export interface HandLandmarkerLike {
-  detect(video: HTMLVideoElement, timestampMs: number): Promise<HandFeatures> | HandFeatures;
+  detect(source: TexImageSource, timestampMs: number): Promise<HandFeatures> | HandFeatures;
   close(): void;
 }
 
@@ -34,6 +60,13 @@ const HAND_WAKE_MOTION = 0.08;
  * then held perfectly still - stillness must not switch it back off mid-hold.
  */
 const HAND_WAKE_WINDOW_MS = 3_000;
+/**
+ * Scanning for a hand is the expensive path (MediaPipe re-runs palm detection
+ * every call), so it is sampled sparsely; once a hand is actually tracked the
+ * rate rises enough to read a changing finger count.
+ */
+const HAND_SCAN_INTERVAL_MS = 300;
+const HAND_TRACK_INTERVAL_MS = 120;
 
 export interface GestureMachineLike {
   readonly stateName: MachineStateName;
@@ -47,6 +80,7 @@ export interface OffscreenRuntimeDependencies {
   createFaceLandmarker: () => Promise<FaceLandmarkerLike>;
   createHandLandmarker?: (() => Promise<HandLandmarkerLike>) | undefined;
   motion?: MotionSampler | undefined;
+  scaler?: FrameScaler | undefined;
   classifier: (features: FaceFeatures) => Classification;
   machine: GestureMachineLike;
   video: HTMLVideoElement;
@@ -68,7 +102,9 @@ export class OffscreenRuntime {
   #lastDiagnosticKey = '';
   #lastObservation: Observation = 'NO_FACE';
   #lastHand: HandFeatures | null = null;
+  #lastFace: FaceFeatures | null = null;
   #handAwakeUntil = 0;
+  #handSampledAt: number | null = null;
   #lastProgressPercent = -1;
 
   constructor(private readonly dependencies: OffscreenRuntimeDependencies) {}
@@ -164,6 +200,9 @@ export class OffscreenRuntime {
 
   setVisibility(isVisible: boolean): void {
     this.#isVisible = isVisible;
+    // Nobody can see the tile while the tab is hidden, so the preview encode is
+    // pure waste there - and it used to keep running after inference stopped.
+    this.#sender?.setEnabled(isVisible);
     if (!isVisible) {
       this.#cancelInference();
     } else if (this.#model && this.#frameHandle === null) {
@@ -175,13 +214,22 @@ export class OffscreenRuntime {
    * Hand tracking is the most expensive stage, so it only runs when something
    * moved in frame recently. A still room keeps it switched off entirely.
    */
-  async #detectHand(time: number): Promise<HandFeatures | null> {
+  async #detectHand(time: number, face: FaceFeatures): Promise<HandFeatures | null> {
     if (!this.#handModel) return null;
-    const motion = this.dependencies.motion?.sample(this.dependencies.video) ?? 1;
+    const surface = this.dependencies.scaler
+      ? this.dependencies.scaler.surface(this.dependencies.video)
+      : this.dependencies.video;
+    if (!surface) return null;
+
+    const motion = this.dependencies.motion?.sample(surface, faceRegion(face)) ?? 1;
     if (motion >= HAND_WAKE_MOTION) this.#handAwakeUntil = time + HAND_WAKE_WINDOW_MS;
     if (time >= this.#handAwakeUntil) return null;
 
-    const hand = await this.#handModel.detect(this.dependencies.video, time);
+    const interval = this.#lastHand?.handDetected ? HAND_TRACK_INTERVAL_MS : HAND_SCAN_INTERVAL_MS;
+    if (this.#handSampledAt !== null && time - this.#handSampledAt < interval) return this.#lastHand;
+    this.#handSampledAt = time;
+
+    const hand = await this.#handModel.detect(surface, time);
     if (hand.handDetected) this.#handAwakeUntil = time + HAND_WAKE_WINDOW_MS;
     return hand;
   }
@@ -226,9 +274,16 @@ export class OffscreenRuntime {
    */
   #inferenceDelay(): number {
     if (this.dependencies.machine.stateName === 'HOLDING') return ACTIVE_FRAME_DELAY_MS;
-    return this.#lastObservation === 'NEUTRAL' || this.#lastObservation === 'NO_FACE'
-      ? IDLE_FRAME_DELAY_MS
-      : ACTIVE_FRAME_DELAY_MS;
+    if (this.#lastObservation !== 'NEUTRAL' && this.#lastObservation !== 'NO_FACE') {
+      return ACTIVE_FRAME_DELAY_MS;
+    }
+    const face = this.#lastFace;
+    if (face?.faceDetected
+      && (Math.max(face.leftEyeClosed, face.rightEyeClosed) >= EYE_STIRRING
+        || Math.abs(face.gazeVertical) >= GAZE_STIRRING)) {
+      return ACTIVE_FRAME_DELAY_MS;
+    }
+    return IDLE_FRAME_DELAY_MS;
   }
 
   #scheduleInference(): void {
@@ -253,7 +308,7 @@ export class OffscreenRuntime {
     try {
       const features = await this.#model.detect(this.dependencies.video, time);
       const face = this.dependencies.classifier(features);
-      const hand = this.#handModel ? await this.#detectHand(time) : null;
+      const hand = this.#handModel ? await this.#detectHand(time, features) : null;
       // A raised hand is unambiguous and deliberate, so it outranks whatever the
       // eyes happen to be doing while the hand is being held up.
       const handGesture = hand?.handDetected && hand.fingerCount >= 1 && hand.fingerCount <= 5
@@ -263,6 +318,7 @@ export class OffscreenRuntime {
       const blocker = handGesture ? 'NONE' : face.blocker;
       this.#lastObservation = observation;
       this.#lastHand = hand;
+      this.#lastFace = features;
       this.#reportDiagnostic(tabId, observation, blocker, features, time);
 
       const events = this.dependencies.machine.update(observation, time);
@@ -322,7 +378,9 @@ export class OffscreenRuntime {
     this.#lastDiagnosticKey = '';
     this.#lastObservation = 'NO_FACE';
     this.#lastHand = null;
+    this.#lastFace = null;
     this.#handAwakeUntil = 0;
+    this.#handSampledAt = null;
     this.dependencies.motion?.reset();
     this.#lastProgressPercent = -1;
   }

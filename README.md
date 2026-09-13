@@ -29,15 +29,25 @@ EyeTube Control is a privacy-first Google Chrome extension (Manifest V3) that al
   - A command never repeats while the same gesture is still held: lower the hand (or open
     your eyes) to re-arm.
 
-- **Light on the machine:**
-  - Inference drops to ~7 fps once the face settles and jumps to ~20 fps the moment a
-    gesture starts, roughly halving CPU against a fixed-rate loop.
-  - The preview tile is encoded at half resolution and 15 fps; inference still runs on
-    the full-resolution stream.
+- **Light on the machine** (measured in the offscreen document, share of one core):
+
+  | | one core |
+  |---|---|
+  | Fixed-rate loop, ungated hand tracking | 31.4% |
+  | Current build, movement in frame | 16.1% |
+  | Current build, viewer sitting still | 7.9% |
+
+  - Inference idles at ~4.5 fps and rises to the capture rate the moment an *eyelid*
+    starts to move - not once a gesture has been classified - so the slower idle rate
+    costs no responsiveness.
+  - The camera is asked for 15 fps rather than the default 30: capture, encode and decode
+    work for frames that would only be dropped.
   - Hand tracking is the most expensive stage, because with no hand on screen MediaPipe
-    re-runs palm detection every frame. It is gated behind a 16x12 frame-motion check, so
-    a still room switches it off entirely: measured 31.6% of one core ungated against
-    10.9% gated.
+    re-runs palm detection every call. It is gated behind a 16x12 frame-motion check that
+    excludes the face region, so a viewer breathing and blinking does not keep it awake,
+    and it reads a 320x240 surface instead of the full frame.
+  - The preview tile is encoded at half resolution and 15 fps from its own cloned track,
+    and stops encoding entirely while the tab is hidden.
   - Only the SIMD WebAssembly runtime is packaged (Chrome 116+ always has SIMD), which
     keeps the build at ~24 MB rather than ~48 MB.
 
