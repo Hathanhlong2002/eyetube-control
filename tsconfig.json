@@ -4,7 +4,7 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
-    "types": ["vitest/globals", "@testing-library/jest-dom/vitest", "node"]
+    "types": ["vitest/globals", "@testing-library/jest-dom/vitest", "node", "chrome"]
   },
-  "include": ["entrypoints", "src", "tests", "*.config.ts"]
+  "include": [".wxt/wxt.d.ts", "entrypoints", "src", "tests", "*.config.ts"]
 }

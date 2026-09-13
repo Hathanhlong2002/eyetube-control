@@ -57,11 +57,53 @@ describe('parseRuntimeMessage', () => {
       { version: 1, type: 'GESTURE_CANCELLED', tabId: 1 },
       { version: 1, type: 'STATUS', tabId: 1, status: 'READY' },
       { version: 1, type: 'STATUS', tabId: 1, status: 'ERROR', reason: 'CAMERA_DENIED' },
+      {
+        version: 1,
+        type: 'PREVIEW_OFFER',
+        tabId: 1,
+        description: { type: 'offer', sdp: 'offer-sdp' },
+      },
+      {
+        version: 1,
+        type: 'PREVIEW_ANSWER',
+        tabId: 1,
+        description: { type: 'answer', sdp: 'answer-sdp' },
+      },
+      {
+        version: 1,
+        type: 'PREVIEW_CANDIDATE',
+        tabId: 1,
+        candidate: {
+          candidate: 'candidate:1 1 udp 1 host.local 5000 typ host',
+          sdpMid: '0',
+          sdpMLineIndex: 0,
+          usernameFragment: null,
+        },
+      },
     ];
 
     for (const message of messages) {
       expect(parseRuntimeMessage(message)).toEqual(message);
     }
   });
-});
 
+  it('rejects malformed or over-specified preview signaling', () => {
+    expect(parseRuntimeMessage({
+      version: 1,
+      type: 'PREVIEW_OFFER',
+      tabId: 1,
+      description: { type: 'answer', sdp: 'wrong-kind' },
+    })).toBeNull();
+    expect(parseRuntimeMessage({
+      version: 1,
+      type: 'PREVIEW_CANDIDATE',
+      tabId: 1,
+      candidate: {
+        candidate: 'candidate:1 1 udp 1 host.local 5000 typ host',
+        sdpMid: '0',
+        sdpMLineIndex: 0,
+        injected: true,
+      },
+    })).toBeNull();
+  });
+});
