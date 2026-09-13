@@ -4,7 +4,12 @@ export type Gesture =
   | 'WINK_LEFT'
   | 'WINK_RIGHT'
   | 'BOTH_CLOSED'
-  | 'GAZE_UP';
+  | 'GAZE_UP'
+  | 'HAND_1'
+  | 'HAND_2'
+  | 'HAND_3'
+  | 'HAND_4'
+  | 'HAND_5';
 
 export type Observation = Gesture | 'NO_FACE' | 'NEUTRAL' | 'UNCERTAIN';
 
@@ -12,7 +17,12 @@ export type Command =
   | 'NEXT_VIDEO'
   | 'PREVIOUS_VIDEO'
   | 'TOGGLE_PLAYBACK'
-  | 'LIKE_VIDEO';
+  | 'LIKE_VIDEO'
+  | 'OPEN_RELATED_1'
+  | 'OPEN_RELATED_2'
+  | 'OPEN_RELATED_3'
+  | 'OPEN_RELATED_4'
+  | 'OPEN_RELATED_5';
 
 export type PreviewDescription = {
   type: 'offer' | 'answer';
@@ -44,6 +54,7 @@ export type RuntimeMessage =
       tabId: number;
       navigationHoldMs: number;
       playPauseHoldMs: number;
+      handHoldMs: number;
       accountHoldMs: number;
       cooldownMs: number;
       enabledGestures: Record<Gesture, boolean>;
@@ -65,6 +76,11 @@ const GESTURES = new Set<Gesture>([
   'WINK_RIGHT',
   'BOTH_CLOSED',
   'GAZE_UP',
+  'HAND_1',
+  'HAND_2',
+  'HAND_3',
+  'HAND_4',
+  'HAND_5',
 ]);
 
 const OBSERVATIONS = new Set<Observation>([
@@ -97,6 +113,11 @@ const COMMANDS = new Set<Command>([
   'PREVIOUS_VIDEO',
   'TOGGLE_PLAYBACK',
   'LIKE_VIDEO',
+  'OPEN_RELATED_1',
+  'OPEN_RELATED_2',
+  'OPEN_RELATED_3',
+  'OPEN_RELATED_4',
+  'OPEN_RELATED_5',
 ]);
 
 const STATUSES = new Set<RuntimeStatus>([
@@ -134,7 +155,7 @@ const MESSAGE_KEYS: Record<string, ReadonlySet<string>> = {
   PREVIEW_ANSWER: new Set(['version', 'type', 'tabId', 'description']),
   PREVIEW_CANDIDATE: new Set(['version', 'type', 'tabId', 'candidate']),
   DIAGNOSTIC: new Set(['version', 'type', 'tabId', 'observation', 'blocker', 'state', 'metrics']),
-  SETTINGS: new Set(['version', 'type', 'tabId', 'navigationHoldMs', 'playPauseHoldMs', 'accountHoldMs', 'cooldownMs', 'enabledGestures']),
+  SETTINGS: new Set(['version', 'type', 'tabId', 'navigationHoldMs', 'playPauseHoldMs', 'handHoldMs', 'accountHoldMs', 'cooldownMs', 'enabledGestures']),
 };
 
 function isPlainRecord(value: unknown): value is PlainRecord {
@@ -224,6 +245,7 @@ function validateByType(input: PlainRecord): boolean {
     case 'SETTINGS':
       return isHoldDuration(input.navigationHoldMs)
         && isHoldDuration(input.playPauseHoldMs)
+        && isHoldDuration(input.handHoldMs)
         && isHoldDuration(input.accountHoldMs)
         && isHoldDuration(input.cooldownMs)
         && isEnabledGestures(input.enabledGestures);

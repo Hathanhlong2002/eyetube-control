@@ -10,6 +10,7 @@ export type GestureEvent =
 export type GestureMachineSettings = {
   navigationHoldMs: number;
   playPauseHoldMs: number;
+  handHoldMs: number;
   accountHoldMs: number;
   cooldownMs: number;
   neutralRearmMs: number;

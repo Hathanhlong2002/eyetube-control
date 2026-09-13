@@ -15,6 +15,11 @@ describe('parseSettings', () => {
     expect(parseSettings({ ...DEFAULT_SETTINGS, accountHoldMs: 10000 }).accountHoldMs).toBe(4000);
   });
 
+  it('clamps the hand gesture hold to [500, 2000]', () => {
+    expect(parseSettings({ ...DEFAULT_SETTINGS, handHoldMs: 100 }).handHoldMs).toBe(500);
+    expect(parseSettings({ ...DEFAULT_SETTINGS, handHoldMs: 9000 }).handHoldMs).toBe(2000);
+  });
+
   it('clamps play/pause hold to a range that clears a natural blink [400, 1500]', () => {
     expect(parseSettings({ ...DEFAULT_SETTINGS, playPauseHoldMs: 100 }).playPauseHoldMs).toBe(400);
     expect(parseSettings({ ...DEFAULT_SETTINGS, playPauseHoldMs: 9000 }).playPauseHoldMs).toBe(1500);
@@ -44,6 +49,7 @@ describe('parseSettings', () => {
         WINK_RIGHT: true,
         BOTH_CLOSED: false,
         GAZE_UP: true,
+        HAND_1: false,
       },
     });
     expect(result.enabledGestures).toEqual({
@@ -51,6 +57,11 @@ describe('parseSettings', () => {
       WINK_RIGHT: true,
       BOTH_CLOSED: false,
       GAZE_UP: true,
+      HAND_1: false,
+      HAND_2: true,
+      HAND_3: true,
+      HAND_4: true,
+      HAND_5: true,
     });
   });
 

@@ -147,6 +147,7 @@ describe('parseRuntimeMessage diagnostics and settings', () => {
     tabId: 7,
     navigationHoldMs: 400,
     playPauseHoldMs: 700,
+    handHoldMs: 900,
     accountHoldMs: 1_200,
     cooldownMs: 800,
     enabledGestures: {
@@ -154,6 +155,11 @@ describe('parseRuntimeMessage diagnostics and settings', () => {
       WINK_RIGHT: false,
       BOTH_CLOSED: true,
       GAZE_UP: true,
+      HAND_1: true,
+      HAND_2: true,
+      HAND_3: true,
+      HAND_4: true,
+      HAND_5: true,
     },
   };
 
