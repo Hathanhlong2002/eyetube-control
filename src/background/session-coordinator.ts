@@ -117,7 +117,7 @@ export class SessionCoordinator {
     await this.#restore();
     const path = extensionPath(sender, this.dependencies.runtimeId);
 
-    if (path === '/popup.html') {
+    if (path === '/popup.html' || path === '/permission.html') {
       if (message.type === 'START_SESSION') await this.#start(message.tabId);
       else if (message.type === 'STOP_SESSION') await this.#stop(message.tabId);
       return;

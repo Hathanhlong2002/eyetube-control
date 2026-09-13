@@ -93,28 +93,30 @@ const Root: React.FC = () => {
       return;
     }
 
-    setStatus('REQUESTING_PERMISSION');
-
-    // Prompt user for camera permission directly in the popup extension context
+    // Check if camera permission has already been granted to extension origin
+    let isGranted = false;
     try {
-      if (navigator.mediaDevices?.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: deviceId ? { deviceId: { exact: deviceId } } : true,
-          audio: false,
-        });
-        stream.getTracks().forEach((track) => track.stop());
+      if (navigator.permissions?.query) {
+        const queryRes = await navigator.permissions.query({ name: 'camera' as PermissionName });
+        isGranted = queryRes.state === 'granted';
       }
     } catch {
-      setStatus('ERROR');
-      setStatusReason('CAMERA_DENIED');
-      return;
+      isGranted = false;
     }
 
-    await chrome.runtime.sendMessage({
-      version: 1,
-      type: 'START_SESSION',
-      tabId: target.id,
-    } satisfies RuntimeMessage);
+    if (isGranted) {
+      setStatus('REQUESTING_PERMISSION');
+      await chrome.runtime.sendMessage({
+        version: 1,
+        type: 'START_SESSION',
+        tabId: target.id,
+      } satisfies RuntimeMessage);
+    } else {
+      // Open dedicated tab to reliably show the Chrome permission prompt
+      const permissionUrl = chrome.runtime.getURL(`permission.html?tabId=${target.id}`);
+      await chrome.tabs.create({ url: permissionUrl, active: true });
+      window.close();
+    }
   };
 
   const handleStop = async () => {
