@@ -66,9 +66,9 @@ export function classify(features: FaceFeatures, profile: CalibrationProfile): O
 
   // Wink detection: one eye closed while opposing eye open, or distinct asymmetry
   const isWinkLeft = (leftClosed && rightOpen)
-    || (features.leftEyeClosed >= 0.45 && (features.leftEyeClosed - features.rightEyeClosed) >= 0.20);
+    || (features.leftEyeClosed >= 0.40 && (features.leftEyeClosed - features.rightEyeClosed) >= 0.18);
   const isWinkRight = (rightClosed && leftOpen)
-    || (features.rightEyeClosed >= 0.45 && (features.rightEyeClosed - features.leftEyeClosed) >= 0.20);
+    || (features.rightEyeClosed >= 0.40 && (features.rightEyeClosed - features.leftEyeClosed) >= 0.18);
 
   if (isWinkLeft && !isWinkRight) return 'WINK_LEFT';
   if (isWinkRight && !isWinkLeft) return 'WINK_RIGHT';

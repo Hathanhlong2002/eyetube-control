@@ -209,6 +209,9 @@ export function mountOverlay(options: {
   onStop(): void;
 }): OverlayHandle {
   const targetDocument = options.document ?? document;
+  const existingHosts = targetDocument.querySelectorAll('div[data-eyetube-control="preview"]');
+  existingHosts.forEach((el) => el.remove());
+
   const host = targetDocument.createElement('div');
   host.dataset.eyetubeControl = 'preview';
   const shadow = host.attachShadow({ mode: 'open' });

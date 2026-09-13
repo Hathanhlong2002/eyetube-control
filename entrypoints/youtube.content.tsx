@@ -29,6 +29,25 @@ export default defineContentScript({
       controller = createYouTubeController(document);
     });
 
+    // Swallow Extension context invalidated errors caused by extension reloads
+    if (typeof window !== 'undefined') {
+      window.addEventListener('error', (event) => {
+        if (event.error?.message?.includes('Extension context invalidated')
+          || event.message?.includes('Extension context invalidated')) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }, true);
+
+      window.addEventListener('unhandledrejection', (event) => {
+        const msg = (event.reason as { message?: string })?.message ?? String(event.reason);
+        if (msg.includes('Extension context invalidated')) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }, true);
+    }
+
     function safeSendMessage(message: RuntimeMessage): void {
       try {
         if (!chrome.runtime?.id) return;
@@ -115,7 +134,9 @@ export default defineContentScript({
 
     async function executeCommand(message: Extract<RuntimeMessage, { type: 'COMMAND' }>): Promise<void> {
       if (message.tabId !== activeTabId) return;
+      console.log('[EyeTube] 🎯 Executing command:', message.command);
       const result = await controller.execute(message.command, message.commandId);
+      console.log('[EyeTube] 🎯 Command result:', result);
       const tile = ensureOverlay();
       if (result.status === 'EXECUTED' || result.status === 'ALREADY_APPLIED') {
         tile.update({

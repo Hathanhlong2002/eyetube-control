@@ -16,7 +16,7 @@ const COMMAND_BY_GESTURE: Record<Gesture, Command> = {
 };
 
 export const DEFAULT_MACHINE_SETTINGS: GestureMachineSettings = {
-  navigationHoldMs: 300,
+  navigationHoldMs: 250,
   accountHoldMs: 2_000,
   cooldownMs: 800,
   neutralRearmMs: 200,
