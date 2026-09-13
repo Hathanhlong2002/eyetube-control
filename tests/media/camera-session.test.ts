@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { CameraSession } from '../../src/media/camera-session';
+import { CameraSession, CAPTURE_FPS } from '../../src/media/camera-session';
 
 function createStream(trackStops: Array<ReturnType<typeof vi.fn>>): MediaStream {
   return {
@@ -22,6 +22,7 @@ describe('CameraSession', () => {
         deviceId: { exact: 'camera-1' },
         width: { ideal: 640 },
         height: { ideal: 480 },
+        frameRate: { ideal: CAPTURE_FPS, max: CAPTURE_FPS },
       },
     });
   });
@@ -34,8 +35,16 @@ describe('CameraSession', () => {
 
     expect(getUserMedia).toHaveBeenCalledWith({
       audio: false,
-      video: { width: { ideal: 640 }, height: { ideal: 480 } },
+      video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        frameRate: { ideal: CAPTURE_FPS, max: CAPTURE_FPS },
+      },
     });
+  });
+
+  it('never asks the camera for more frames than inference consumes', async () => {
+    expect(CAPTURE_FPS).toBeLessThanOrEqual(15);
   });
 
   it('stops every owned track', async () => {
