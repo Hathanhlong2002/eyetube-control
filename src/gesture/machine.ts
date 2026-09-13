@@ -15,6 +15,11 @@ const COMMAND_BY_GESTURE: Record<Gesture, Command> = {
   WINK_RIGHT: 'NEXT_VIDEO',
   WINK_LEFT: 'PREVIOUS_VIDEO',
   GAZE_UP: 'LIKE_VIDEO',
+  HAND_1: 'OPEN_RELATED_1',
+  HAND_2: 'OPEN_RELATED_2',
+  HAND_3: 'OPEN_RELATED_3',
+  HAND_4: 'OPEN_RELATED_4',
+  HAND_5: 'OPEN_RELATED_5',
 };
 
 // A face that never classifies as a clean NEUTRAL (glasses, side lighting, an
@@ -22,12 +27,14 @@ const COMMAND_BY_GESTURE: Record<Gesture, Command> = {
 // machine: arm once the face has simply been present for this long.
 const PRESENCE_REARM_MS = 1_000;
 // Same guard for the cooldown state, which otherwise waits forever for a clean
-// neutral and makes eye control appear to work exactly once per session.
+// neutral and makes eye control appear to work exactly once per session. It
+// deliberately does not apply while a gesture is still being held.
 const COOLDOWN_ESCAPE_MS = 2_000;
 
 export const DEFAULT_MACHINE_SETTINGS: GestureMachineSettings = {
   navigationHoldMs: 400,
   playPauseHoldMs: 700,
+  handHoldMs: 900,
   accountHoldMs: 1_200,
   cooldownMs: 800,
   neutralRearmMs: 200,
@@ -36,10 +43,16 @@ export const DEFAULT_MACHINE_SETTINGS: GestureMachineSettings = {
     WINK_RIGHT: true,
     BOTH_CLOSED: true,
     GAZE_UP: true,
+    HAND_1: true,
+    HAND_2: true,
+    HAND_3: true,
+    HAND_4: true,
+    HAND_5: true,
   },
 };
 
 function holdMsFor(gesture: Gesture, settings: GestureMachineSettings): number {
+  if (gesture.startsWith('HAND_')) return settings.handHoldMs;
   if (gesture === 'BOTH_CLOSED') return settings.playPauseHoldMs;
   if (gesture === 'GAZE_UP') return settings.accountHoldMs;
   return settings.navigationHoldMs;
@@ -115,7 +128,12 @@ export class GestureMachine {
       const elapsed = timestampMs - this.#state.emittedAt;
       if (observation !== 'NEUTRAL') {
         this.#state.neutralSince = null;
-        if (elapsed >= this.#settings.cooldownMs + COOLDOWN_ESCAPE_MS) this.#state = { type: 'READY' };
+        // Escape only when the signal is merely unreadable. Escaping while the
+        // same deliberate gesture is still held would fire it a second time,
+        // which for a raised hand means navigating twice.
+        if (!isGesture(observation) && elapsed >= this.#settings.cooldownMs + COOLDOWN_ESCAPE_MS) {
+          this.#state = { type: 'READY' };
+        }
         return [];
       }
       this.#state.neutralSince ??= timestampMs;

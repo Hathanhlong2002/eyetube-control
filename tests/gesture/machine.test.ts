@@ -175,3 +175,34 @@ describe('GestureMachine rearm safety valves', () => {
     }));
   });
 });
+
+describe('GestureMachine repeat protection', () => {
+  it('does not fire again while the same gesture is still being held', () => {
+    const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
+    // Three fingers held up long past the cooldown must navigate exactly once.
+    expect(commands(hold(machine, 'HAND_3', 0, 900))).toHaveLength(1);
+    for (const time of [1_500, 3_000, 6_000, 12_000]) {
+      expect(commands(machine.update('HAND_3', time))).toHaveLength(0);
+    }
+  });
+
+  it('re-arms once the hand is lowered', () => {
+    const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
+    hold(machine, 'HAND_3', 0, 900);
+
+    machine.update('NEUTRAL', 1_800);
+    machine.update('NEUTRAL', 2_100);
+    expect(machine.update('HAND_3', 2_200)).toContainEqual({
+      type: 'PROGRESS', gesture: 'HAND_3', progress: 0,
+    });
+  });
+
+  it('maps each finger count to its sidebar position', () => {
+    for (const count of [1, 2, 3, 4, 5] as const) {
+      const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
+      expect(hold(machine, `HAND_${count}`, 0, 900)).toContainEqual(expect.objectContaining({
+        type: 'COMMAND', command: `OPEN_RELATED_${count}`,
+      }));
+    }
+  });
+});
