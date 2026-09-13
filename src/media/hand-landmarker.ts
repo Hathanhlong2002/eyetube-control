@@ -1,8 +1,5 @@
 import { HandLandmarker, FilesetResolver, type HandLandmarkerOptions } from '@mediapipe/tasks-vision';
 
-/** Hands are held deliberately, so they need far fewer samples than eyes. */
-export const HAND_INFERENCE_INTERVAL_MS = 200;
-
 export type HandPoint = { x: number; y: number };
 
 export type HandFeatures = {
@@ -16,7 +13,7 @@ export type HandLandmarkerResultLike = {
 };
 
 type LandmarkerLike = {
-  detectForVideo(video: HTMLVideoElement, timestampMs: number): HandLandmarkerResultLike;
+  detectForVideo(source: TexImageSource, timestampMs: number): HandLandmarkerResultLike;
   close(): void;
 };
 
@@ -28,7 +25,7 @@ export type HandLandmarkerDependencies = {
 };
 
 export interface HandLandmarkerAdapter {
-  detect(video: HTMLVideoElement, timestampMs: number): Promise<HandFeatures>;
+  detect(source: TexImageSource, timestampMs: number): Promise<HandFeatures>;
   close(): void;
 }
 
@@ -93,27 +90,19 @@ const DEFAULT_DEPENDENCIES: HandLandmarkerDependencies = {
 
 class LocalHandLandmarkerAdapter implements HandLandmarkerAdapter {
   #lastTimestamp: number | null = null;
-  #lastProcessedAt: number | null = null;
   #lastFeatures: HandFeatures = NO_HAND;
   #closed = false;
 
   constructor(private readonly landmarker: LandmarkerLike) {}
 
-  async detect(video: HTMLVideoElement, timestampMs: number): Promise<HandFeatures> {
+  async detect(source: TexImageSource, timestampMs: number): Promise<HandFeatures> {
     if (this.#closed) throw new Error('Hand landmarker is closed');
     if (!Number.isFinite(timestampMs)) return this.#lastFeatures;
+    // MediaPipe requires strictly increasing timestamps per graph.
     if (this.#lastTimestamp !== null && timestampMs <= this.#lastTimestamp) return this.#lastFeatures;
-    if (!video || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
-      return this.#lastFeatures;
-    }
-    if (this.#lastProcessedAt !== null && timestampMs - this.#lastProcessedAt < HAND_INFERENCE_INTERVAL_MS) {
-      return this.#lastFeatures;
-    }
-
     this.#lastTimestamp = timestampMs;
-    this.#lastProcessedAt = timestampMs;
     try {
-      this.#lastFeatures = extractHandFeatures(this.landmarker.detectForVideo(video, timestampMs));
+      this.#lastFeatures = extractHandFeatures(this.landmarker.detectForVideo(source, timestampMs));
     } catch (error) {
       console.warn('[EyeTube] MediaPipe hand frame skipped safely:', error);
       this.#lastFeatures = NO_HAND;
