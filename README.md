@@ -12,6 +12,9 @@ EyeTube Control is a privacy-first Google Chrome extension (Manifest V3) that al
     column, falling back to the player's next button when a playlist is running.
   - **Left eye wink (400 ms):** Previous video -- one step back through history.
   - **Look up (1,200 ms):** Like current video (idempotent, never unlikes).
+  - **Hold up 1-5 fingers (900 ms):** Open that numbered video in the right-hand column.
+    Only the count matters, so any comfortable hand shape works -- a "three" made with
+    thumb, index and middle reads the same as one made with index, middle and ring.
 
   The mapping matches effort and risk to the action: the gesture everyone can perform
   carries the most-used, self-correcting command, while the account-touching one needs the
@@ -19,13 +22,24 @@ EyeTube Control is a privacy-first Google Chrome extension (Manifest V3) that al
   cannot trigger it. Looking down is deliberately not a gesture and subscribing is not eye
   controlled at all -- subtitles sit at the bottom of the frame, so reading them would fire
   a command on every line.
+- **Two local models, one camera:**
+  - Face gestures come from MediaPipe Face Landmarker, hand gestures from Hand Landmarker;
+    both run on the same offscreen camera stream.
+  - A raised hand outranks the eyes, so a gesture is never read as a blink mid-reach.
+  - A command never repeats while the same gesture is still held: lower the hand (or open
+    your eyes) to re-arm.
+
 - **Light on the machine:**
   - Inference drops to ~7 fps once the face settles and jumps to ~20 fps the moment a
     gesture starts, roughly halving CPU against a fixed-rate loop.
   - The preview tile is encoded at half resolution and 15 fps; inference still runs on
     the full-resolution stream.
+  - Hand tracking is the most expensive stage, because with no hand on screen MediaPipe
+    re-runs palm detection every frame. It is gated behind a 16x12 frame-motion check, so
+    a still room switches it off entirely: measured 31.6% of one core ungated against
+    10.9% gated.
   - Only the SIMD WebAssembly runtime is packaged (Chrome 116+ always has SIMD), which
-    is why the build is ~16 MB rather than ~40 MB.
+    keeps the build at ~24 MB rather than ~48 MB.
 
 - **100% Local & Private Processing:**
   - MediaPipe Face Landmarker model runs strictly client-side via bundled WebAssembly.
@@ -106,7 +120,9 @@ EyeTube Control is a privacy-first Google Chrome extension (Manifest V3) that al
 ## 5. Security & Privacy Guarantees
 
 - **No Remote Code Execution:** CSP enforces `script-src 'self' 'wasm-unsafe-eval'`. No external CDN scripts or remote weights are ever fetched.
-- **Model Integrity:** The MediaPipe Face Landmarker model asset is verified against `public/models/SHA256SUMS`.
+- **Model Integrity:** Both MediaPipe model assets are verified against
+  `public/models/SHA256SUMS` (`shasum -a 256 -c SHA256SUMS` inside `public/models`). They are
+  the official float16 bundles from `storage.googleapis.com/mediapipe-models`.
 - **Fail-Closed DOM Adapter:** Does not simulate blind clicks; checks YouTube semantic state (`aria-pressed`, disabled state) before firing commands.
 
 ---

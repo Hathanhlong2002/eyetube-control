@@ -9,8 +9,11 @@ import {
 import { DEFAULT_MACHINE_SETTINGS, GestureMachine } from '../gesture/machine';
 import { CameraSession } from '../media/camera-session';
 import { createFaceLandmarkerAdapter, type FaceLandmarkerAdapter } from '../media/face-landmarker';
+import { createHandLandmarkerAdapter, type HandLandmarkerAdapter } from '../media/hand-landmarker';
 
 const SETTINGS_STORAGE_KEY = 'eyetube_settings';
+
+const HAND_GESTURE_BY_COUNT = ['HAND_1', 'HAND_2', 'HAND_3', 'HAND_4', 'HAND_5'] as const;
 
 const BLOCKER_TEXT: Record<DetectionBlocker, string> = {
   NONE: 'Điều kiện nhận diện tốt',
@@ -28,6 +31,11 @@ const GESTURE_TEXT: Record<Gesture, string> = {
   WINK_RIGHT: 'Nháy mắt phải → Video kế tiếp',
   WINK_LEFT: 'Nháy mắt trái → Video trước đó',
   GAZE_UP: 'Nhìn lên → Thích video',
+  HAND_1: 'Giơ 1 ngón → Video thứ 1 bên phải',
+  HAND_2: 'Giơ 2 ngón → Video thứ 2 bên phải',
+  HAND_3: 'Giơ 3 ngón → Video thứ 3 bên phải',
+  HAND_4: 'Giơ 4 ngón → Video thứ 4 bên phải',
+  HAND_5: 'Giơ 5 ngón → Video thứ 5 bên phải',
 };
 
 function el<T extends HTMLElement>(id: string): T {
@@ -59,6 +67,7 @@ const meters = {
   size: { value: el('size-val'), fill: el('size-fill'), mark: el('size-mark') },
   light: { value: el('light-val'), fill: el('light-fill'), mark: el('light-mark') },
   fps: { value: el('fps-val'), fill: el('fps-fill') },
+  fingers: { value: el('fingers-val'), fill: el('fingers-fill') },
 };
 
 const profile = DEFAULT_CALIBRATION_PROFILE;
@@ -75,6 +84,8 @@ meters.light.mark.style.left = `${Math.min(100, (profile.brightnessFloor / LIGHT
 const camera = new CameraSession();
 const machine = new GestureMachine(DEFAULT_MACHINE_SETTINGS);
 let landmarker: FaceLandmarkerAdapter | null = null;
+let handLandmarker: HandLandmarkerAdapter | null = null;
+let fingerCount = 0;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let running = false;
 let busy = false;
@@ -142,9 +153,12 @@ function render(features: FaceFeatures, observation: string, blocker: DetectionB
   setMeter(meters.light, features.brightness.toFixed(2), features.brightness / LIGHT_SCALE,
     features.brightness >= profile.brightnessFloor);
   setMeter(meters.fps, `${fps} fps`, fps / 20, fps >= 8);
+  setMeter(meters.fingers, fingerCount > 0 ? String(fingerCount) : '–', fingerCount / 5, fingerCount > 0);
 
   if (!features.faceDetected) {
     setVerdict('bad', 'Không thấy khuôn mặt', BLOCKER_TEXT.NO_FACE);
+  } else if (observation.startsWith('HAND_')) {
+    setVerdict('ok', `Đang giơ ${fingerCount} ngón`, `Giữ yên để mở video thứ ${fingerCount} bên phải`);
   } else if (blocker !== 'NONE') {
     setVerdict('warn', 'Thấy mặt nhưng chưa dùng được', BLOCKER_TEXT[blocker]);
   } else {
@@ -154,6 +168,7 @@ function render(features: FaceFeatures, observation: string, blocker: DetectionB
   raw.textContent = `state=${machine.stateName} obs=${observation} blocker=${blocker}`
     + ` size=${features.faceSize.toFixed(3)} light=${features.brightness.toFixed(2)}`
     + ` L=${features.leftEyeClosed.toFixed(2)} R=${features.rightEyeClosed.toFixed(2)}`
+    + ` fingers=${fingerCount}`
     + ` gaze=${features.gazeVertical.toFixed(2)} yaw=${features.headYaw.toFixed(2)}`
     + ` pitch=${features.headPitch.toFixed(2)} fps=${fps}`;
 }
@@ -170,7 +185,12 @@ async function tick(): Promise<void> {
   const now = performance.now();
   try {
     const features = await landmarker.detect(video, now);
-    const { observation, blocker } = classifyDetailed(features, profile);
+    const face = classifyDetailed(features, profile);
+    const hand = handLandmarker ? await handLandmarker.detect(video, now) : null;
+    fingerCount = hand?.handDetected ? hand.fingerCount : 0;
+    const handGesture = HAND_GESTURE_BY_COUNT[fingerCount - 1] ?? null;
+    const observation = handGesture ?? face.observation;
+    const blocker = handGesture ? 'NONE' : face.blocker;
     lastFeatures = features;
     lastBlocker = blocker;
 
@@ -237,6 +257,7 @@ async function start(): Promise<void> {
     machine.configure({
       navigationHoldMs: settings.navigationHoldMs,
       playPauseHoldMs: settings.playPauseHoldMs,
+      handHoldMs: settings.handHoldMs,
       accountHoldMs: settings.accountHoldMs,
       cooldownMs: settings.cooldownMs,
       enabledGestures: settings.enabledGestures,
@@ -249,6 +270,12 @@ async function start(): Promise<void> {
 
     setVerdict('idle', 'Đang tải mô hình AI…', 'Lần đầu có thể mất vài giây');
     landmarker = await createFaceLandmarkerAdapter();
+    try {
+      handLandmarker = await createHandLandmarkerAdapter();
+    } catch (error) {
+      handLandmarker = null;
+      addLog(`Không tải được mô hình bàn tay: ${(error as Error).message}`);
+    }
     machine.reset();
     running = true;
     fpsWindowStart = performance.now();
@@ -275,6 +302,9 @@ function stop(): void {
   timer = null;
   landmarker?.close();
   landmarker = null;
+  handLandmarker?.close();
+  handLandmarker = null;
+  fingerCount = 0;
   camera.stop();
   video.srcObject = null;
   drawHud(null);
