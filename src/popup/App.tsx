@@ -18,6 +18,7 @@ export interface PopupAppProps {
   isStandalone?: boolean | undefined;
   lastGesture?: Gesture | undefined;
   onOpenStandalone?: (() => void) | undefined;
+  onOpenTest?: (() => void) | undefined;
   onStart: (deviceId?: string) => Promise<void> | void;
   onStop: () => Promise<void> | void;
   onSettingsChange: (settings: EyeControlSettings) => Promise<void> | void;
@@ -26,11 +27,10 @@ export interface PopupAppProps {
 }
 
 const GESTURE_LABELS: Record<Gesture, { label: string; action: string }> = {
-  WINK_LEFT: { label: 'Wink Left', action: 'Play / Pause' },
-  WINK_RIGHT: { label: 'Wink Right', action: 'Next video' },
   BOTH_CLOSED: { label: 'Both Eyes Closed', action: 'Play / Pause' },
+  WINK_RIGHT: { label: 'Wink Right', action: 'Next video' },
+  WINK_LEFT: { label: 'Wink Left', action: 'Previous video' },
   GAZE_UP: { label: 'Look Up', action: 'Like video' },
-  GAZE_DOWN: { label: 'Look Down', action: 'Subscribe channel' },
 };
 
 function statusLabel(status: RuntimeStatus, reason?: StatusReason): string {
@@ -73,6 +73,7 @@ export const PopupApp: React.FC<PopupAppProps> = ({
   isStandalone = false,
   lastGesture,
   onOpenStandalone,
+  onOpenTest,
   onStart,
   onStop,
   onSettingsChange,
@@ -97,7 +98,10 @@ export const PopupApp: React.FC<PopupAppProps> = ({
     });
   };
 
-  const handleDurationChange = (key: 'navigationHoldMs' | 'accountHoldMs' | 'cooldownMs', value: number) => {
+  const handleDurationChange = (
+    key: 'navigationHoldMs' | 'playPauseHoldMs' | 'accountHoldMs' | 'cooldownMs',
+    value: number,
+  ) => {
     onSettingsChange({
       ...settings,
       [key]: value,
@@ -172,6 +176,16 @@ export const PopupApp: React.FC<PopupAppProps> = ({
             onClick={() => void onStart(currentDeviceId)}
           >
             Start eye control
+          </button>
+        )}
+
+        {onOpenTest && (
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => void onOpenTest()}
+          >
+            Kiểm tra AI nhận diện mắt
           </button>
         )}
 
@@ -252,7 +266,19 @@ export const PopupApp: React.FC<PopupAppProps> = ({
       <section className="setting-group">
         <h2 className="group-label">Hold Durations</h2>
         <div className="range-item">
-          <label htmlFor="nav-hold">Navigation Hold: {settings.navigationHoldMs} ms</label>
+          <label htmlFor="play-hold">Play / Pause Hold: {settings.playPauseHoldMs} ms</label>
+          <input
+            id="play-hold"
+            type="range"
+            min={SETTINGS_LIMITS.playPauseHoldMs.min}
+            max={SETTINGS_LIMITS.playPauseHoldMs.max}
+            step={50}
+            value={settings.playPauseHoldMs}
+            onChange={(e) => handleDurationChange('playPauseHoldMs', Number(e.target.value))}
+          />
+        </div>
+        <div className="range-item">
+          <label htmlFor="nav-hold">Next / Previous Hold: {settings.navigationHoldMs} ms</label>
           <input
             id="nav-hold"
             type="range"
@@ -264,7 +290,7 @@ export const PopupApp: React.FC<PopupAppProps> = ({
           />
         </div>
         <div className="range-item">
-          <label htmlFor="acc-hold">Like / Subscribe Hold: {settings.accountHoldMs} ms</label>
+          <label htmlFor="acc-hold">Like Hold: {settings.accountHoldMs} ms</label>
           <input
             id="acc-hold"
             type="range"

@@ -40,46 +40,36 @@ describe('YouTubeController', () => {
     expect(video.pause).toHaveBeenCalledOnce();
   });
 
-  it('returns unavailable when previous is absent', async () => {
-    await expect(createYouTubeController(document).execute('PREVIOUS_VIDEO', 'cmd-prev')).resolves.toEqual({
-      status: 'UNAVAILABLE', command: 'PREVIOUS_VIDEO', reason: 'NO_CONTROL',
+  it('opens the first video in the right-hand column for NEXT_VIDEO', async () => {
+    const links = [...document.querySelectorAll<HTMLAnchorElement>('#related a')];
+    links.forEach((link) => { link.click = vi.fn(); });
+    const playerNext = document.querySelector<HTMLButtonElement>('.ytp-next-button')!;
+    playerNext.click = vi.fn();
+
+    await expect(createYouTubeController(document).execute('NEXT_VIDEO', 'cmd-next')).resolves.toEqual({
+      status: 'EXECUTED', command: 'NEXT_VIDEO',
     });
+    expect(links[0]!.click).toHaveBeenCalledOnce();
+    links.slice(1).forEach((link) => expect(link.click).not.toHaveBeenCalled());
+    // The player's own next button is display:none on an ordinary watch page.
+    expect(playerNext.click).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ['NEXT_VIDEO', '.ytp-next-button'],
-    ['PREVIOUS_VIDEO', '.ytp-prev-button'],
-  ] as const)('clicks one enabled %s control', async (command, selector) => {
-    loadFixture('playlist');
-    const button = document.querySelector<HTMLButtonElement>(selector)!;
-    button.click = vi.fn();
+  it('skips sidebar links that are not watch links', async () => {
+    const related = document.querySelector('#related')!;
+    related.insertAdjacentHTML('afterbegin', '<a href="/results?search_query=x">search</a>');
+    const watchLink = document.querySelector<HTMLAnchorElement>('#related a[href*="/watch"]')!;
+    watchLink.click = vi.fn();
 
-    await expect(createYouTubeController(document).execute(command, `cmd-${command}`)).resolves.toEqual({
-      status: 'EXECUTED', command,
-    });
-    expect(button.click).toHaveBeenCalledOnce();
+    await createYouTubeController(document).execute('NEXT_VIDEO', 'cmd-next-skip');
+    expect(watchLink.click).toHaveBeenCalledOnce();
   });
 
-  it('fails closed when a navigation selector is ambiguous', async () => {
-    document.querySelector('ytd-watch-flexy')?.insertAdjacentHTML(
-      'beforeend', '<button class="ytp-next-button"></button>',
-    );
-    const buttons = [...document.querySelectorAll<HTMLButtonElement>('.ytp-next-button')];
-    buttons.forEach((button) => { button.click = vi.fn(); });
-
-    await expect(createYouTubeController(document).execute('NEXT_VIDEO', 'cmd-ambiguous')).resolves.toEqual({
-      status: 'FAILED', command: 'NEXT_VIDEO', reason: 'YOUTUBE_UI_CHANGED',
-    });
-    buttons.forEach((button) => expect(button.click).not.toHaveBeenCalled());
-  });
-
-  it('ignores a CSS-hidden duplicate control', async () => {
-    const hidden = document.createElement('button');
-    hidden.className = 'ytp-next-button';
+  it('ignores a CSS-hidden sidebar entry', async () => {
+    const hidden = document.querySelector<HTMLAnchorElement>('#related a')!;
     hidden.style.display = 'none';
     hidden.click = vi.fn();
-    document.querySelector('ytd-watch-flexy')?.append(hidden);
-    const visible = document.querySelector<HTMLButtonElement>('.ytp-next-button')!;
+    const visible = [...document.querySelectorAll<HTMLAnchorElement>('#related a')][1]!;
     visible.click = vi.fn();
 
     await expect(createYouTubeController(document).execute('NEXT_VIDEO', 'cmd-visible')).resolves.toEqual({
@@ -87,6 +77,39 @@ describe('YouTubeController', () => {
     });
     expect(visible.click).toHaveBeenCalledOnce();
     expect(hidden.click).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the player next button when a playlist is running', async () => {
+    loadFixture('playlist');
+    const button = document.querySelector<HTMLButtonElement>('.ytp-next-button')!;
+    button.click = vi.fn();
+
+    await expect(createYouTubeController(document).execute('NEXT_VIDEO', 'cmd-playlist-next')).resolves.toEqual({
+      status: 'EXECUTED', command: 'NEXT_VIDEO',
+    });
+    expect(button.click).toHaveBeenCalledOnce();
+  });
+
+  it('steps back through history for PREVIOUS_VIDEO', async () => {
+    const back = vi.fn();
+    Object.defineProperty(window.history, 'length', { configurable: true, value: 3 });
+    Object.defineProperty(window.history, 'back', { configurable: true, value: back });
+
+    await expect(createYouTubeController(document).execute('PREVIOUS_VIDEO', 'cmd-prev')).resolves.toEqual({
+      status: 'EXECUTED', command: 'PREVIOUS_VIDEO',
+    });
+    expect(back).toHaveBeenCalledOnce();
+  });
+
+  it('returns unavailable when there is nothing to go back to', async () => {
+    const back = vi.fn();
+    Object.defineProperty(window.history, 'length', { configurable: true, value: 1 });
+    Object.defineProperty(window.history, 'back', { configurable: true, value: back });
+
+    await expect(createYouTubeController(document).execute('PREVIOUS_VIDEO', 'cmd-prev-none')).resolves.toEqual({
+      status: 'UNAVAILABLE', command: 'PREVIOUS_VIDEO', reason: 'NO_CONTROL',
+    });
+    expect(back).not.toHaveBeenCalled();
   });
 
   it('reports PAGE_NOT_READY outside a watch page', async () => {
@@ -140,26 +163,24 @@ describe('YouTubeController', () => {
     await expect(controller.execute('LIKE_VIDEO', 'cmd-out-like')).resolves.toEqual({
       status: 'UNAVAILABLE', command: 'LIKE_VIDEO', reason: 'NOT_SIGNED_IN',
     });
-    await expect(controller.execute('SUBSCRIBE_CHANNEL', 'cmd-out-sub')).resolves.toEqual({
-      status: 'UNAVAILABLE', command: 'SUBSCRIBE_CHANNEL', reason: 'NOT_SIGNED_IN',
-    });
     accountButtons.forEach((button) => expect(button.click).not.toHaveBeenCalled());
   });
 
-  it('does not toggle an already subscribed renderer', async () => {
+  it('never touches the subscribe button, which is no longer eye controlled', async () => {
     const renderer = document.querySelector('ytd-subscribe-button-renderer')!;
-    renderer.setAttribute('subscribed', '');
     const subscribe = renderer.querySelector<HTMLButtonElement>('button')!;
     subscribe.click = vi.fn();
 
-    await expect(createYouTubeController(document).execute('SUBSCRIBE_CHANNEL', 'cmd-sub')).resolves.toEqual({
-      status: 'ALREADY_APPLIED', command: 'SUBSCRIBE_CHANNEL',
-    });
+    document.querySelectorAll<HTMLAnchorElement>('#related a').forEach((link) => { link.click = vi.fn(); });
+    const controller = createYouTubeController(document);
+    for (const command of ['TOGGLE_PLAYBACK', 'NEXT_VIDEO', 'PREVIOUS_VIDEO', 'LIKE_VIDEO'] as const) {
+      await controller.execute(command, `cmd-${command}`);
+    }
     expect(subscribe.click).not.toHaveBeenCalled();
   });
 
   it('keeps duplicate results in a bounded 100-command cache', async () => {
-    const next = document.querySelector<HTMLButtonElement>('.ytp-next-button')!;
+    const next = document.querySelector<HTMLAnchorElement>('#related a[href*="/watch"]')!;
     next.click = vi.fn();
     const controller = createYouTubeController(document);
     for (let index = 0; index < 101; index += 1) {

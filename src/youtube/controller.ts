@@ -66,39 +66,41 @@ class LocalYouTubeController implements YouTubeController {
       return { status: 'EXECUTED', command };
     }
 
-    if (command === 'NEXT_VIDEO' || command === 'PREVIOUS_VIDEO') {
-      const selector = command === 'NEXT_VIDEO' ? YOUTUBE_SELECTORS.next : YOUTUBE_SELECTORS.previous;
-      const controls = uniqueUsable<HTMLElement>(this.root, selector);
-      if (controls.length === 0) return unavailable(command, 'NO_CONTROL');
-      if (controls.length !== 1) return changed(command);
-      controls[0]!.click();
+    if (command === 'NEXT_VIDEO') {
+      // Prefer the first video in the right-hand column: on an ordinary watch
+      // page the player's next button is display:none and does nothing.
+      const related = uniqueUsable<HTMLAnchorElement>(this.root, YOUTUBE_SELECTORS.relatedVideo);
+      const target = related.find((link) => /[?&]v=/.test(link.getAttribute('href') ?? ''));
+      if (target) {
+        target.click();
+        return { status: 'EXECUTED', command };
+      }
+      const playerNext = uniqueUsable<HTMLElement>(this.root, YOUTUBE_SELECTORS.next);
+      if (playerNext.length === 0) return unavailable(command, 'NO_CONTROL');
+      playerNext[0]!.click();
+      return { status: 'EXECUTED', command };
+    }
+
+    if (command === 'PREVIOUS_VIDEO') {
+      // "Previous" means the video watched before this one, which is a history
+      // step rather than a playlist position.
+      const view = this.root.defaultView;
+      if (!view || view.history.length <= 1) return unavailable(command, 'NO_CONTROL');
+      view.history.back();
       return { status: 'EXECUTED', command };
     }
 
     if (!isSignedIn(this.root)) return unavailable(command, 'NOT_SIGNED_IN');
 
-    if (command === 'LIKE_VIDEO') {
-      const containers = uniqueUsable<HTMLElement>(this.root, YOUTUBE_SELECTORS.likeContainer);
-      if (containers.length !== 1) return containers.length === 0
-        ? unavailable(command, 'NO_CONTROL')
-        : changed(command);
-      const buttons = uniqueUsable<HTMLButtonElement>(containers[0]!, 'button');
-      if (buttons.length !== 1) return buttons.length === 0 ? unavailable(command, 'NO_CONTROL') : changed(command);
-      const pressed = buttons[0]!.getAttribute('aria-pressed');
-      if (pressed === 'true') return { status: 'ALREADY_APPLIED', command };
-      if (pressed !== 'false') return changed(command);
-      buttons[0]!.click();
-      return { status: 'EXECUTED', command };
-    }
-
-    const renderers = uniqueUsable<HTMLElement>(this.root, YOUTUBE_SELECTORS.subscribeRenderer);
-    if (renderers.length !== 1) return renderers.length === 0
+    const containers = uniqueUsable<HTMLElement>(this.root, YOUTUBE_SELECTORS.likeContainer);
+    if (containers.length !== 1) return containers.length === 0
       ? unavailable(command, 'NO_CONTROL')
       : changed(command);
-    const renderer = renderers[0]!;
-    if (renderer.hasAttribute('subscribed')) return { status: 'ALREADY_APPLIED', command };
-    const buttons = uniqueUsable<HTMLButtonElement>(renderer, 'button');
+    const buttons = uniqueUsable<HTMLButtonElement>(containers[0]!, 'button');
     if (buttons.length !== 1) return buttons.length === 0 ? unavailable(command, 'NO_CONTROL') : changed(command);
+    const pressed = buttons[0]!.getAttribute('aria-pressed');
+    if (pressed === 'true') return { status: 'ALREADY_APPLIED', command };
+    if (pressed !== 'false') return changed(command);
     buttons[0]!.click();
     return { status: 'EXECUTED', command };
   }

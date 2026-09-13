@@ -7,19 +7,17 @@ import { clampTileGeometry, defaultTileGeometry, moveTile, resizeTile, type Tile
 import styles from './style.css?inline';
 
 const GESTURE_TEXT: Record<Gesture, string> = {
-  WINK_LEFT: 'Hold left wink to play or pause',
-  WINK_RIGHT: 'Hold right wink for next video',
+  WINK_LEFT: 'Hold left wink for the previous video',
+  WINK_RIGHT: 'Hold right wink for the next video',
   BOTH_CLOSED: 'Hold both eyes closed to play or pause',
   GAZE_UP: 'Hold look up to like',
-  GAZE_DOWN: 'Hold look down to subscribe',
 };
 
 const GESTURE_ACTION: Record<Gesture, string> = {
-  WINK_LEFT: 'Play or pause',
+  WINK_LEFT: 'Previous video',
   WINK_RIGHT: 'Next video',
   BOTH_CLOSED: 'Play or pause',
   GAZE_UP: 'Like video',
-  GAZE_DOWN: 'Subscribe',
 };
 
 const COMMAND_TEXT: Record<Command, string> = {
@@ -27,7 +25,6 @@ const COMMAND_TEXT: Record<Command, string> = {
   PREVIOUS_VIDEO: 'Previous video',
   TOGGLE_PLAYBACK: 'Play or pause',
   LIKE_VIDEO: 'Like video',
-  SUBSCRIBE_CHANNEL: 'Subscribe',
 };
 
 const STATUS_TEXT: Record<RuntimeStatus, string> = {
@@ -62,6 +59,10 @@ export interface EyeControlOverlayProps {
   progress: number | undefined;
   completedCommand: Command | undefined;
   calibrationStep: number | undefined;
+  /** Why detection is currently rejecting frames, in the viewer's words. */
+  hint: string | undefined;
+  /** Live detection numbers, shown on the tile so no DevTools is needed. */
+  metrics: string | undefined;
   onGeometryChange(geometry: TileGeometry): void;
   onMinimizedChange(minimized: boolean): void;
   onStop(): void;
@@ -71,6 +72,7 @@ function announcedText(props: EyeControlOverlayProps): string {
   if (props.completedCommand) return `${COMMAND_TEXT[props.completedCommand]} completed`;
   if (props.status === 'CALIBRATING' && props.calibrationStep) return `Calibration ${props.calibrationStep} of 5`;
   if (props.gesture && props.progress !== undefined) return GESTURE_TEXT[props.gesture];
+  if (props.hint) return props.hint;
   if (props.reason && ERROR_TEXT[props.reason]) return ERROR_TEXT[props.reason]!;
   return STATUS_TEXT[props.status];
 }
@@ -176,6 +178,7 @@ export function EyeControlOverlay(props: EyeControlOverlayProps) {
         style={{ '--progress': `${progress}%` } as CSSProperties}
       />}
     </div>
+    {props.metrics && <div className="eyetube-metrics" aria-hidden="true">{props.metrics}</div>}
     <div className="eyetube-bar">
       <span className="eyetube-dot" aria-hidden="true" />
       <span className="eyetube-status" role="status" aria-live="polite">{announcedText(props)}</span>
@@ -195,7 +198,7 @@ export function EyeControlOverlay(props: EyeControlOverlayProps) {
 
 export type OverlaySnapshot = Pick<EyeControlOverlayProps,
   'status' | 'reason' | 'preview' | 'geometry' | 'minimized'
-  | 'gesture' | 'progress' | 'completedCommand' | 'calibrationStep'>;
+  | 'gesture' | 'progress' | 'completedCommand' | 'calibrationStep' | 'hint' | 'metrics'>;
 
 export interface OverlayHandle {
   update(patch: Partial<OverlaySnapshot>): void;
@@ -232,6 +235,8 @@ export function mountOverlay(options: {
     progress: undefined,
     completedCommand: undefined,
     calibrationStep: undefined,
+    hint: undefined,
+    metrics: undefined,
   };
 
   const render = () => reactRoot.render(<EyeControlOverlay

@@ -1,4 +1,5 @@
 import { parseRuntimeMessage, type PreviewCandidate, type RuntimeMessage } from '../src/contracts/messages';
+import type { DetectionBlocker, RuntimeStatus } from '../src/contracts/status';
 import { createPreviewReceiver, type PreviewReceiver } from '../src/media/local-preview-peer';
 import { mountOverlay, type OverlayHandle } from '../src/overlay/App';
 import { clampTileGeometry, type TileGeometry } from '../src/overlay/geometry';
@@ -6,6 +7,18 @@ import { createYouTubeController } from '../src/youtube/controller';
 import { observeYouTubeNavigation } from '../src/youtube/lifecycle';
 
 const GEOMETRY_KEY = 'tileGeometry';
+
+const BLOCKER_HINT: Record<DetectionBlocker, string | undefined> = {
+  NONE: undefined,
+  NO_FACE: 'Không thấy khuôn mặt trong camera',
+  LOW_CONFIDENCE: 'Tín hiệu khuôn mặt chưa đủ rõ',
+  FACE_TOO_SMALL: 'Hãy ngồi gần camera hơn',
+  TOO_DARK: 'Phòng quá tối, cần thêm ánh sáng',
+  EYES_UNCLEAR: 'Chưa đọc rõ mắt, mở to mắt và nhìn thẳng',
+  HEAD_TURNED: 'Hãy quay mặt thẳng vào camera',
+  HEAD_TILTED: 'Đầu đang ngửa/cúi quá nhiều',
+};
+
 
 function isTileGeometry(value: unknown): value is TileGeometry {
   if (typeof value !== 'object' || value === null) return false;
@@ -24,6 +37,7 @@ export default defineContentScript({
     let overlay: OverlayHandle | null = null;
     let completionTimer: ReturnType<typeof setTimeout> | null = null;
     let controller = createYouTubeController(document);
+    let lastStatus: RuntimeStatus = 'OFF';
 
     const stopNavigation = observeYouTubeNavigation(() => {
       controller = createYouTubeController(document);
@@ -107,6 +121,7 @@ export default defineContentScript({
       overlay?.destroy();
       overlay = null;
       activeTabId = null;
+      lastStatus = 'OFF';
     }
 
     async function acceptOffer(message: Extract<RuntimeMessage, { type: 'PREVIEW_OFFER' }>): Promise<void> {
@@ -139,8 +154,10 @@ export default defineContentScript({
       console.log('[EyeTube] 🎯 Command result:', result);
       const tile = ensureOverlay();
       if (result.status === 'EXECUTED' || result.status === 'ALREADY_APPLIED') {
+        lastStatus = 'COMMAND_COMPLETED';
         tile.update({
           status: 'COMMAND_COMPLETED',
+          hint: undefined,
           reason: undefined,
           gesture: undefined,
           progress: undefined,
@@ -148,10 +165,12 @@ export default defineContentScript({
         });
         if (completionTimer) clearTimeout(completionTimer);
         completionTimer = setTimeout(() => {
+          lastStatus = 'READY';
           overlay?.update({ status: 'READY', completedCommand: undefined });
           completionTimer = null;
         }, 1_000);
       } else {
+        lastStatus = 'WARNING';
         tile.update({
           status: 'WARNING',
           reason: 'YOUTUBE_COMMAND_UNAVAILABLE',
@@ -192,8 +211,10 @@ export default defineContentScript({
           );
         }
         activeTabId = message.tabId;
+        lastStatus = message.status;
         ensureOverlay().update({
           status: message.status,
+          hint: undefined,
           reason: message.reason,
           gesture: undefined,
           progress: undefined,
@@ -206,8 +227,10 @@ export default defineContentScript({
           'color: #ffeb3b; font-weight: bold; background: #222; padding: 1px 4px; border-radius: 2px;',
           'color: #aaa;'
         );
+        lastStatus = 'HOLDING';
         ensureOverlay().update({
           status: 'HOLDING',
+          hint: undefined,
           reason: undefined,
           gesture: message.gesture,
           progress: message.progress,
@@ -215,11 +238,27 @@ export default defineContentScript({
         });
       } else if (message.type === 'GESTURE_CANCELLED' && message.tabId === activeTabId) {
         console.log('%c[EyeTube AI] ↩️ Huỷ cử chỉ (mắt đã mở lại hoặc đổi hướng nhìn)', 'color: #888; font-style: italic;');
+        lastStatus = 'READY';
         ensureOverlay().update({
           status: 'READY',
           gesture: undefined,
           progress: undefined,
           completedCommand: undefined,
+        });
+      } else if (message.type === 'DIAGNOSTIC' && message.tabId === activeTabId) {
+        const hint = BLOCKER_HINT[message.blocker];
+        console.log(
+          `%c[EyeTube AI] \uD83D\uDD2C ${message.state} | ${message.observation}`
+            + `${hint ? ` | \u26A0\uFE0F ${hint}` : ''} | ${message.metrics}`,
+          hint ? 'color: #ffb300;' : 'color: #78909c;',
+        );
+        // Only the idle states may be relabelled: a hold or a just-executed
+        // command must keep showing its own feedback.
+        ensureOverlay().update({
+          metrics: `${message.state} · ${message.observation} · ${message.metrics}`,
+          ...(lastStatus === 'READY' || lastStatus === 'SEARCHING' || lastStatus === 'WARNING'
+            ? { hint }
+            : {}),
         });
       } else if (message.type === 'COMMAND') {
         void executeCommand(message);

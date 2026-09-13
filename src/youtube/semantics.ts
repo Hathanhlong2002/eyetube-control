@@ -2,10 +2,11 @@ export const YOUTUBE_SELECTORS = {
   watchRoot: 'ytd-watch-flexy',
   video: 'video.html5-main-video',
   next: '.ytp-next-button',
-  previous: '.ytp-prev-button',
+  // The player's next button is display:none unless a playlist or queue is
+  // active, so the right-hand column is the reliable source of "next video".
+  relatedVideo: '#related a[href*="/watch?v="], ytd-watch-next-secondary-results-renderer a[href*="/watch?v="]',
   like: 'like-button-view-model button[aria-pressed], #segmented-like-button button[aria-pressed]',
   likeContainer: 'like-button-view-model, #segmented-like-button',
-  subscribeRenderer: 'ytd-subscribe-button-renderer',
   signedInAvatar: '#avatar-btn',
   signInLink: 'a[href^="https://accounts.google.com/ServiceLogin"]',
 } as const;

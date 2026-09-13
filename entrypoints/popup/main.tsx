@@ -127,6 +127,10 @@ const Root: React.FC = () => {
     }
   };
 
+  const handleOpenTest = async () => {
+    await chrome.tabs.create({ url: chrome.runtime.getURL('test.html'), active: true });
+  };
+
   const handleStart = async (deviceId?: string) => {
     let target = activeTab;
     if (!target?.id) {
@@ -194,15 +198,6 @@ const Root: React.FC = () => {
     await chrome.storage.local.remove('tileGeometry');
   };
 
-  const handleRecalibrate = async () => {
-    if (!activeTab?.id) return;
-    await chrome.runtime.sendMessage({
-      version: 1,
-      type: 'START_CALIBRATION',
-      tabId: activeTab.id,
-    } satisfies RuntimeMessage);
-  };
-
   return (
     <PopupApp
       status={status}
@@ -213,10 +208,10 @@ const Root: React.FC = () => {
       isStandalone={isStandalone}
       lastGesture={lastGesture}
       onOpenStandalone={handleOpenStandalone}
+      onOpenTest={handleOpenTest}
       onStart={handleStart}
       onStop={handleStop}
       onSettingsChange={handleSettingsChange}
-      onRecalibrate={handleRecalibrate}
       onResetGeometry={handleResetGeometry}
     />
   );
