@@ -30,6 +30,7 @@ export type RuntimeMessage =
   | { version: 1; type: 'START_SESSION'; tabId: number }
   | { version: 1; type: 'STOP_SESSION'; tabId: number }
   | { version: 1; type: 'START_CALIBRATION'; tabId: number }
+  | { version: 1; type: 'SESSION_VISIBILITY'; tabId: number; visible: boolean }
   | { version: 1; type: 'GESTURE_PROGRESS'; tabId: number; gesture: Gesture; progress: number }
   | { version: 1; type: 'GESTURE_CANCELLED'; tabId: number }
   | { version: 1; type: 'COMMAND'; tabId: number; command: Command; commandId: string }
@@ -82,6 +83,7 @@ const MESSAGE_KEYS: Record<string, ReadonlySet<string>> = {
   START_SESSION: new Set(['version', 'type', 'tabId']),
   STOP_SESSION: new Set(['version', 'type', 'tabId']),
   START_CALIBRATION: new Set(['version', 'type', 'tabId']),
+  SESSION_VISIBILITY: new Set(['version', 'type', 'tabId', 'visible']),
   GESTURE_PROGRESS: new Set(['version', 'type', 'tabId', 'gesture', 'progress']),
   GESTURE_CANCELLED: new Set(['version', 'type', 'tabId']),
   COMMAND: new Set(['version', 'type', 'tabId', 'command', 'commandId']),
@@ -140,6 +142,8 @@ function validateByType(input: PlainRecord): boolean {
     case 'START_CALIBRATION':
     case 'GESTURE_CANCELLED':
       return true;
+    case 'SESSION_VISIBILITY':
+      return typeof input.visible === 'boolean';
     case 'GESTURE_PROGRESS':
       return typeof input.gesture === 'string'
         && GESTURES.has(input.gesture as Gesture)

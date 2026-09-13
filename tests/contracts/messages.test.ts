@@ -3,6 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { parseRuntimeMessage } from '../../src/contracts/messages';
 
 describe('parseRuntimeMessage', () => {
+  it('accepts a boolean session visibility signal', () => {
+    expect(parseRuntimeMessage({
+      version: 1,
+      type: 'SESSION_VISIBILITY',
+      tabId: 7,
+      visible: false,
+    })).toEqual({ version: 1, type: 'SESSION_VISIBILITY', tabId: 7, visible: false });
+  });
   it('accepts a valid start request', () => {
     expect(parseRuntimeMessage({ version: 1, type: 'START_SESSION', tabId: 7 })).toEqual({
       version: 1,

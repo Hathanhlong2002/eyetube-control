@@ -161,8 +161,21 @@ export default defineContentScript({
       }
     };
 
+    const handleVisibilityChange = () => {
+      if (activeTabId !== null) {
+        void chrome.runtime.sendMessage({
+          version: 1,
+          type: 'SESSION_VISIBILITY',
+          tabId: activeTabId,
+          visible: !document.hidden,
+        } satisfies RuntimeMessage);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     chrome.runtime.onMessage.addListener(messageListener);
     ctx.onInvalidated(() => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       chrome.runtime.onMessage.removeListener(messageListener);
       stopNavigation();
       destroy();
