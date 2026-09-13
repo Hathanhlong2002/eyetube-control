@@ -132,13 +132,16 @@ export class SessionCoordinator {
         this.#metadata.recentCommandIds = this.#metadata.recentCommandIds.slice(-100);
         await this.#save();
         await this.dependencies.sendToTab(message.tabId, message);
+        await this.dependencies.sendToRuntime(message);
       } else if (message.type === 'STATUS') {
         await this.dependencies.sendToTab(message.tabId, message);
         await this.dependencies.sendToRuntime(message);
-      } else if (message.type === 'PREVIEW_OFFER'
-        || message.type === 'PREVIEW_CANDIDATE'
-        || message.type === 'GESTURE_PROGRESS'
+      } else if (message.type === 'GESTURE_PROGRESS'
         || message.type === 'GESTURE_CANCELLED') {
+        await this.dependencies.sendToTab(message.tabId, message);
+        await this.dependencies.sendToRuntime(message);
+      } else if (message.type === 'PREVIEW_OFFER'
+        || message.type === 'PREVIEW_CANDIDATE') {
         await this.dependencies.sendToTab(message.tabId, message);
       }
       return;

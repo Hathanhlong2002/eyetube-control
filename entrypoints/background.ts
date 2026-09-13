@@ -68,6 +68,24 @@ export default defineBackground(() => {
     }
   }
 
+  async function ensureContentScript(tabId: number): Promise<void> {
+    try {
+      const res = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
+      if (res?.type === 'PONG') return;
+    } catch {
+      // Content script not yet active
+    }
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ['content-scripts/youtube.js'],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    } catch (err) {
+      console.warn('[EyeTube Background] Auto-inject content script notice:', err);
+    }
+  }
+
   const coordinator = new SessionCoordinator({
     runtimeId: chrome.runtime.id,
     store,
@@ -75,7 +93,10 @@ export default defineBackground(() => {
     closeOffscreen,
     isEligibleTab,
     sendToRuntime: (message) => chrome.runtime.sendMessage(message),
-    sendToTab: (tabId, message) => chrome.tabs.sendMessage(tabId, message),
+    sendToTab: async (tabId, message) => {
+      await ensureContentScript(tabId);
+      return chrome.tabs.sendMessage(tabId, message);
+    },
   });
 
   const fakePopupSender = {

@@ -14,6 +14,10 @@ export interface PopupAppProps {
   settings?: EyeControlSettings | undefined;
   devices?: MediaDeviceInfo[] | undefined;
   selectedDeviceId?: string | undefined;
+  activeTabTitle?: string | undefined;
+  isStandalone?: boolean | undefined;
+  lastGesture?: Gesture | undefined;
+  onOpenStandalone?: (() => void) | undefined;
   onStart: (deviceId?: string) => Promise<void> | void;
   onStop: () => Promise<void> | void;
   onSettingsChange: (settings: EyeControlSettings) => Promise<void> | void;
@@ -22,7 +26,7 @@ export interface PopupAppProps {
 }
 
 const GESTURE_LABELS: Record<Gesture, { label: string; action: string }> = {
-  WINK_LEFT: { label: 'Wink Left', action: 'Previous video' },
+  WINK_LEFT: { label: 'Wink Left', action: 'Play / Pause' },
   WINK_RIGHT: { label: 'Wink Right', action: 'Next video' },
   BOTH_CLOSED: { label: 'Both Eyes Closed', action: 'Play / Pause' },
   GAZE_UP: { label: 'Look Up', action: 'Like video' },
@@ -40,7 +44,7 @@ function statusLabel(status: RuntimeStatus, reason?: StatusReason): string {
     case 'CALIBRATING':
       return 'Calibrating eye gestures…';
     case 'READY':
-      return 'Ready for eye gestures';
+      return 'Ready: Active eye control';
     case 'HOLDING':
       return 'Holding gesture…';
     case 'COMMAND_COMPLETED':
@@ -65,6 +69,10 @@ export const PopupApp: React.FC<PopupAppProps> = ({
   settings = DEFAULT_SETTINGS,
   devices = [],
   selectedDeviceId,
+  activeTabTitle,
+  isStandalone = false,
+  lastGesture,
+  onOpenStandalone,
   onStart,
   onStop,
   onSettingsChange,
@@ -104,7 +112,7 @@ export const PopupApp: React.FC<PopupAppProps> = ({
   };
 
   return (
-    <div className="eyetube-popup">
+    <div className={`eyetube-popup ${isStandalone ? 'is-standalone' : ''}`}>
       <header className="popup-header">
         <div className="title-row">
           <svg className="app-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -112,7 +120,25 @@ export const PopupApp: React.FC<PopupAppProps> = ({
             <circle cx="12" cy="12" r="3" />
           </svg>
           <h1>EyeTube Control</h1>
+          {onOpenStandalone && !isStandalone && (
+            <button
+              type="button"
+              className="open-standalone-link"
+              onClick={onOpenStandalone}
+              title="Mở ra cửa sổ riêng không bao giờ bị Chrome tự ẩn"
+            >
+              Mở Tab/Cửa sổ riêng ↗
+            </button>
+          )}
         </div>
+
+        {activeTabTitle && (
+          <div className="active-tab-strip">
+            <span className="tab-pill">YouTube</span>
+            <span className="tab-name" title={activeTabTitle}>{activeTabTitle}</span>
+          </div>
+        )}
+
         <div
           role="status"
           aria-live="polite"
@@ -121,6 +147,13 @@ export const PopupApp: React.FC<PopupAppProps> = ({
           <span className="status-dot" aria-hidden="true" />
           <span className="status-text">{statusLabel(status, statusReason)}</span>
         </div>
+
+        {lastGesture && (
+          <div className="gesture-alert-banner">
+            <span className="gesture-alert-icon">✨</span>
+            <span>Phát hiện: <strong>{GESTURE_LABELS[lastGesture]?.label ?? lastGesture}</strong> ({GESTURE_LABELS[lastGesture]?.action})</span>
+          </div>
+        )}
       </header>
 
       <section className="popup-main-actions">

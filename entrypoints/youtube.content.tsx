@@ -122,7 +122,11 @@ export default defineContentScript({
       }
     }
 
-    const messageListener = (input: unknown) => {
+    const messageListener = (input: unknown, _sender: unknown, sendResponse?: (response?: unknown) => void) => {
+      if (typeof input === 'object' && input !== null && (input as Record<string, unknown>).type === 'PING') {
+        sendResponse?.({ type: 'PONG' });
+        return true;
+      }
       const message = parseRuntimeMessage(input);
       if (!message) return;
       if (message.type === 'PREVIEW_OFFER') {

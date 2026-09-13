@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 
-import type { RuntimeMessage } from '../../src/contracts/messages';
+import type { Gesture, RuntimeMessage } from '../../src/contracts/messages';
 import {
   DEFAULT_SETTINGS,
   parseSettings,
@@ -20,20 +20,41 @@ function isYouTubeUrl(url: string | undefined): boolean {
 }
 
 const Root: React.FC = () => {
+  const isStandalone = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('standalone') === 'true';
+
   const [activeTab, setActiveTab] = useState<chrome.tabs.Tab | null>(null);
   const [status, setStatus] = useState<RuntimeStatus>('OFF');
   const [statusReason, setStatusReason] = useState<StatusReason | undefined>();
   const [settings, setSettings] = useState<EyeControlSettings>(DEFAULT_SETTINGS);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [lastGesture, setLastGesture] = useState<Gesture | undefined>();
 
   useEffect(() => {
+    if (isStandalone) {
+      document.body.classList.add('standalone');
+    }
+
     async function init() {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id && isYouTubeUrl(tab.url)) {
-        setActiveTab(tab);
+      // Find active tab, or any open YouTube tab if opened in standalone window/tab
+      let targetTab: chrome.tabs.Tab | null = null;
+      try {
+        const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (current?.id && isYouTubeUrl(current.url)) {
+          targetTab = current;
+        } else {
+          const allTabs = await chrome.tabs.query({});
+          targetTab = allTabs.find((t) => Boolean(t.id && isYouTubeUrl(t.url))) ?? null;
+        }
+      } catch {
+        // Query error
+      }
+
+      if (targetTab?.id) {
+        setActiveTab(targetTab);
         const sessionRes = await chrome.storage.session?.get(SESSION_STORAGE_KEY);
         const metadata = sessionRes?.[SESSION_STORAGE_KEY] as { activeTabId?: number | null } | undefined;
-        if (metadata?.activeTabId === tab.id) {
+        if (metadata?.activeTabId === targetTab.id) {
           setStatus('READY');
         }
       } else {
@@ -58,6 +79,7 @@ const Root: React.FC = () => {
 
     void init();
 
+    let gestureTimeout: ReturnType<typeof setTimeout> | null = null;
     const listener = (input: unknown) => {
       if (typeof input !== 'object' || input === null) return;
       const msg = input as Record<string, unknown>;
@@ -68,22 +90,57 @@ const Root: React.FC = () => {
         } else {
           setStatusReason(undefined);
         }
+      } else if (msg.type === 'COMMAND') {
+        setLastGesture('WINK_LEFT');
+        if (gestureTimeout) clearTimeout(gestureTimeout);
+        gestureTimeout = setTimeout(() => setLastGesture(undefined), 1800);
+      } else if (msg.type === 'GESTURE_PROGRESS' && typeof msg.gesture === 'string') {
+        setLastGesture(msg.gesture as Gesture);
+      } else if (msg.type === 'GESTURE_CANCELLED') {
+        if (gestureTimeout) clearTimeout(gestureTimeout);
+        gestureTimeout = setTimeout(() => setLastGesture(undefined), 600);
       }
     };
 
     chrome.runtime.onMessage.addListener(listener);
     return () => {
+      if (gestureTimeout) clearTimeout(gestureTimeout);
       chrome.runtime.onMessage.removeListener(listener);
     };
-  }, []);
+  }, [isStandalone]);
+
+  const handleOpenStandalone = async () => {
+    const url = chrome.runtime.getURL('popup.html?standalone=true');
+    try {
+      if (chrome.windows?.create) {
+        await chrome.windows.create({
+          url,
+          type: 'popup',
+          width: 420,
+          height: 700,
+        });
+      } else {
+        await chrome.tabs.create({ url, active: true });
+      }
+    } catch {
+      await chrome.tabs.create({ url, active: true });
+    }
+  };
 
   const handleStart = async (deviceId?: string) => {
     let target = activeTab;
     if (!target?.id) {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id && isYouTubeUrl(tab.url)) {
-        target = tab;
-        setActiveTab(tab);
+      const [current] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (current?.id && isYouTubeUrl(current.url)) {
+        target = current;
+        setActiveTab(current);
+      } else {
+        const allTabs = await chrome.tabs.query({});
+        const ytTab = allTabs.find((t) => Boolean(t.id && isYouTubeUrl(t.url)));
+        if (ytTab?.id) {
+          target = ytTab;
+          setActiveTab(ytTab);
+        }
       }
     }
 
@@ -105,18 +162,16 @@ const Root: React.FC = () => {
     }
 
     if (isGranted && statusReason !== 'CAMERA_DENIED') {
-      setStatus('REQUESTING_PERMISSION');
+      setStatus('READY');
       await chrome.runtime.sendMessage({
         version: 1,
         type: 'START_SESSION',
         tabId: target.id,
       } satisfies RuntimeMessage);
-      setTimeout(() => window.close(), 300);
     } else {
       // Open dedicated tab to reliably show the Chrome permission prompt
       const permissionUrl = chrome.runtime.getURL(`permission.html?tabId=${target.id}`);
       await chrome.tabs.create({ url: permissionUrl, active: true });
-      window.close();
     }
   };
 
@@ -154,6 +209,10 @@ const Root: React.FC = () => {
       statusReason={statusReason}
       settings={settings}
       devices={devices}
+      activeTabTitle={activeTab?.title}
+      isStandalone={isStandalone}
+      lastGesture={lastGesture}
+      onOpenStandalone={handleOpenStandalone}
       onStart={handleStart}
       onStop={handleStop}
       onSettingsChange={handleSettingsChange}
