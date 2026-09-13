@@ -154,3 +154,39 @@ describe('local preview peer', () => {
     expect(peer.close).toHaveBeenCalledOnce();
   });
 });
+
+describe('preview encode independence', () => {
+  it('sends a clone so pausing the preview never blinds inference', () => {
+    const inferenceTrack = {
+      kind: 'video',
+      enabled: true,
+      clone: vi.fn(),
+      stop: vi.fn(),
+    };
+    const previewTrack = { kind: 'video', enabled: true, stop: vi.fn() };
+    inferenceTrack.clone.mockReturnValue(previewTrack);
+    const stream = { getVideoTracks: () => [inferenceTrack] } as unknown as MediaStream;
+    const addTrack = vi.fn();
+    const peer = {
+      addTrack,
+      close: vi.fn(),
+      signalingState: 'stable',
+    } as unknown as RTCPeerConnection;
+
+    const sender = createPreviewSender(stream, () => peer);
+
+    expect(inferenceTrack.clone).toHaveBeenCalledOnce();
+    expect(addTrack).toHaveBeenCalledWith(previewTrack, stream);
+
+    sender.setEnabled(false);
+    expect(previewTrack.enabled).toBe(false);
+    expect(inferenceTrack.enabled).toBe(true);
+
+    sender.setEnabled(true);
+    expect(previewTrack.enabled).toBe(true);
+
+    sender.close();
+    expect(previewTrack.stop).toHaveBeenCalledOnce();
+    expect(inferenceTrack.stop).not.toHaveBeenCalled();
+  });
+});

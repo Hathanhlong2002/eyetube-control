@@ -7,6 +7,8 @@ export type PeerConnectionFactory = (configuration: RTCConfiguration) => RTCPeer
 
 export interface PreviewSender {
   createOffer(): Promise<SerializableDescription>;
+  /** Pauses or resumes the preview encode without touching the inference feed. */
+  setEnabled(enabled: boolean): void;
   acceptAnswer(answer: SerializableDescription): Promise<void>;
   addRemoteCandidate(candidate: SerializableCandidate): Promise<boolean>;
   onCandidate(callback: (candidate: SerializableCandidate) => void): void;
@@ -96,11 +98,19 @@ export function createPreviewSender(
   factory: PeerConnectionFactory = defaultFactory,
 ): PreviewSender {
   const peer = factory({ iceServers: [] });
-  for (const track of stream.getVideoTracks()) {
+  // The preview gets its own clone of the camera track: disabling the preview
+  // then costs nothing and leaves the inference feed untouched.
+  const previewTracks = stream.getVideoTracks().map((track) => track.clone?.() ?? track);
+  for (const track of previewTracks) {
     void capPreviewEncoding(peer.addTrack(track, stream));
   }
 
   return {
+    setEnabled(enabled) {
+      for (const track of previewTracks) {
+        if ('enabled' in track) track.enabled = enabled;
+      }
+    },
     async createOffer() {
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
@@ -122,6 +132,7 @@ export function createPreviewSender(
       installCandidateHandler(peer, callback);
     },
     close() {
+      for (const track of previewTracks) track.stop?.();
       peer.close();
     },
   };
