@@ -3,7 +3,12 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import type { RuntimeMessage } from '../../src/contracts/messages';
 import type { FaceFeatures } from '../../src/gesture/classifier';
 import type { GestureEvent, Observation } from '../../src/gesture/types';
-import { OffscreenRuntime, type FaceLandmarkerLike } from '../../src/offscreen/runtime';
+import type { MotionSampler } from '../../src/media/frame-motion';
+import {
+  OffscreenRuntime,
+  type FaceLandmarkerLike,
+  type HandLandmarkerLike,
+} from '../../src/offscreen/runtime';
 
 const neutralFeatures: FaceFeatures = {
   faceDetected: true,
@@ -45,6 +50,9 @@ function setup(options: {
     camera,
     createPreviewSender: vi.fn().mockReturnValue(sender),
     createFaceLandmarker: vi.fn(options.createModel ?? (() => Promise.resolve(model))),
+    // Assigned per test; the runtime reads it when the session connects.
+    createHandLandmarker: undefined as undefined | (() => Promise<HandLandmarkerLike>),
+    motion: undefined as undefined | MotionSampler,
     classifier: vi.fn().mockReturnValue({ observation: 'NEUTRAL', blocker: 'NONE' } as const),
     machine,
     video: { srcObject: null } as unknown as HTMLVideoElement,
@@ -197,5 +205,118 @@ describe('OffscreenRuntime inference pacing', () => {
 
     const progress = test.sent.filter((message) => message.type === 'GESTURE_PROGRESS');
     expect(progress).toHaveLength(1);
+  });
+});
+
+describe('OffscreenRuntime hand gestures', () => {
+  // Inference awaits the face model and then the hand model, so the assertions
+  // have to wait for both microtask hops before the messages are out.
+  const flush = () => new Promise((resolve) => { setTimeout(resolve, 0); });
+
+  function withHand(fingerCount: number) {
+    const handModel = {
+      detect: vi.fn().mockResolvedValue({ handDetected: fingerCount > 0, fingerCount }),
+      close: vi.fn(),
+    };
+    const test = setup();
+    test.dependencies.createHandLandmarker = vi.fn().mockResolvedValue(handModel);
+    return { test, handModel };
+  }
+
+  it('lets a raised hand outrank whatever the eyes are doing', async () => {
+    const { test } = withHand(3);
+    test.dependencies.classifier.mockReturnValue({ observation: 'WINK_RIGHT', blocker: 'NONE' });
+    await test.connect();
+
+    await test.callbacks.shift()!(100);
+    await flush();
+    const diagnostic = test.sent.find((message) => message.type === 'DIAGNOSTIC');
+    expect(diagnostic).toMatchObject({ observation: 'HAND_3' });
+  });
+
+  it('falls back to the eyes when no hand is in frame', async () => {
+    const { test } = withHand(0);
+    test.dependencies.classifier.mockReturnValue({ observation: 'WINK_RIGHT', blocker: 'NONE' });
+    await test.connect();
+
+    await test.callbacks.shift()!(100);
+    await flush();
+    expect(test.sent.find((message) => message.type === 'DIAGNOSTIC'))
+      .toMatchObject({ observation: 'WINK_RIGHT' });
+  });
+
+  it('keeps eye control working when the hand model cannot load', async () => {
+    const test = setup();
+    test.dependencies.createHandLandmarker = vi.fn().mockRejectedValue(new Error('no hand model'));
+    test.dependencies.classifier.mockReturnValue({ observation: 'NEUTRAL', blocker: 'NONE' });
+
+    await test.connect();
+    expect(test.sent).toContainEqual({ version: 1, type: 'STATUS', tabId: 12, status: 'READY' });
+    await test.callbacks.shift()!(100);
+    await flush();
+    expect(test.sent.find((message) => message.type === 'DIAGNOSTIC'))
+      .toMatchObject({ observation: 'NEUTRAL' });
+  });
+});
+
+describe('OffscreenRuntime hand tracking cost gate', () => {
+  const flush = () => new Promise((resolve) => { setTimeout(resolve, 0); });
+
+  function withMotion(motionValues: number[], fingerCount = 2) {
+    const handModel = {
+      detect: vi.fn().mockResolvedValue({ handDetected: fingerCount > 0, fingerCount }),
+      close: vi.fn(),
+    };
+    const test = setup();
+    let call = 0;
+    test.dependencies.createHandLandmarker = vi.fn().mockResolvedValue(handModel);
+    test.dependencies.motion = {
+      sample: vi.fn(() => motionValues[Math.min(call++, motionValues.length - 1)] ?? 0),
+      reset: vi.fn(),
+    };
+    return { test, handModel };
+  }
+
+  it('does not run the hand model while the frame is still', async () => {
+    const { test, handModel } = withMotion([0.001, 0.001, 0.001]);
+    await test.connect();
+
+    // The first sample wakes it, so run past the wake window.
+    for (const time of [100, 200, 4_000, 8_000]) {
+      await test.callbacks.shift()!(time);
+      await flush();
+    }
+    const callsAfterWindow = handModel.detect.mock.calls.filter(([, time]) => time >= 4_000);
+    expect(callsAfterWindow).toHaveLength(0);
+  });
+
+  it('wakes the hand model as soon as something moves', async () => {
+    const { test, handModel } = withMotion([0.001, 0.001, 0.5]);
+    await test.connect();
+
+    await test.callbacks.shift()!(100);
+    await flush();
+    handModel.detect.mockClear();
+    await test.callbacks.shift()!(10_000);
+    await flush();
+    expect(handModel.detect).not.toHaveBeenCalled();
+
+    await test.callbacks.shift()!(10_100);
+    await flush();
+    expect(handModel.detect).toHaveBeenCalledOnce();
+  });
+
+  it('keeps scanning while a detected hand is held perfectly still', async () => {
+    const { test, handModel } = withMotion([0.5, 0, 0, 0, 0]);
+    await test.connect();
+
+    await test.callbacks.shift()!(100);
+    await flush();
+    expect(handModel.detect).toHaveBeenCalledOnce();
+
+    // Motion is now zero, but a hand was seen, so tracking must stay awake.
+    await test.callbacks.shift()!(900);
+    await flush();
+    expect(handModel.detect).toHaveBeenCalledTimes(2);
   });
 });

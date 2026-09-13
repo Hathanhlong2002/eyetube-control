@@ -54,6 +54,7 @@ export default defineBackground(() => {
         tabId,
         navigationHoldMs: settings.navigationHoldMs,
         playPauseHoldMs: settings.playPauseHoldMs,
+        handHoldMs: settings.handHoldMs,
         accountHoldMs: settings.accountHoldMs,
         cooldownMs: settings.cooldownMs,
         enabledGestures: settings.enabledGestures,

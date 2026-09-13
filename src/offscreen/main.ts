@@ -3,6 +3,8 @@ import { classifyDetailed, DEFAULT_CALIBRATION_PROFILE } from '../gesture/classi
 import { DEFAULT_MACHINE_SETTINGS, GestureMachine } from '../gesture/machine';
 import { CameraSession } from '../media/camera-session';
 import { createFaceLandmarkerAdapter } from '../media/face-landmarker';
+import { createMotionSampler } from '../media/frame-motion';
+import { createHandLandmarkerAdapter } from '../media/hand-landmarker';
 import { createPreviewSender } from '../media/local-preview-peer';
 import { OffscreenRuntime } from './runtime';
 
@@ -19,6 +21,8 @@ const runtime = new OffscreenRuntime({
   camera: new CameraSession(),
   createPreviewSender,
   createFaceLandmarker: () => createFaceLandmarkerAdapter(),
+  createHandLandmarker: () => createHandLandmarkerAdapter(),
+  motion: createMotionSampler(),
   classifier: (features) => classifyDetailed(features, DEFAULT_CALIBRATION_PROFILE),
   machine,
   video: cameraElement,
@@ -59,6 +63,7 @@ chrome.runtime.onMessage.addListener((input: unknown, _sender, sendResponse) => 
     machine.configure({
       navigationHoldMs: message.navigationHoldMs,
       playPauseHoldMs: message.playPauseHoldMs,
+      handHoldMs: message.handHoldMs,
       accountHoldMs: message.accountHoldMs,
       cooldownMs: message.cooldownMs,
       enabledGestures: message.enabledGestures,
