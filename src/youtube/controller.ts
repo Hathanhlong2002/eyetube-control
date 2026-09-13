@@ -47,11 +47,22 @@ class LocalYouTubeController implements YouTubeController {
 
     if (command === 'TOGGLE_PLAYBACK') {
       const videos = uniqueUsable<HTMLVideoElement>(this.root, YOUTUBE_SELECTORS.video);
-      if (videos.length === 0) return unavailable(command, 'NO_CONTROL');
-      if (videos.length !== 1) return changed(command);
-      const video = videos[0]!;
-      if (video.paused) await video.play();
-      else video.pause();
+      const video = videos[0] ?? this.root.querySelector<HTMLVideoElement>('video');
+      if (!video) {
+        const playBtn = this.root.querySelector<HTMLButtonElement>('.ytp-play-button');
+        if (playBtn) {
+          playBtn.click();
+          return { status: 'EXECUTED', command };
+        }
+        return unavailable(command, 'NO_CONTROL');
+      }
+
+      const playBtn = this.root.querySelector<HTMLButtonElement>('.ytp-play-button');
+      if (video.paused) {
+        await video.play().catch(() => playBtn?.click());
+      } else {
+        video.pause();
+      }
       return { status: 'EXECUTED', command };
     }
 

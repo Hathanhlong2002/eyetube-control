@@ -24,7 +24,9 @@ export function uniqueUsable<T extends Element>(root: ParentNode, selector: stri
 }
 
 export function isWatchPageReady(root: ParentNode): boolean {
-  return root.querySelector(YOUTUBE_SELECTORS.watchRoot) !== null;
+  return root.querySelector(YOUTUBE_SELECTORS.watchRoot) !== null
+    || root.querySelector('video') !== null
+    || root.querySelector('#movie_player') !== null;
 }
 
 export function isSignedIn(root: ParentNode): boolean {

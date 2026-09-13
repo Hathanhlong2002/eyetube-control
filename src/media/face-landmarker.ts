@@ -153,21 +153,30 @@ class LocalFaceLandmarkerAdapter implements FaceLandmarkerAdapter {
     }
     this.#lastTimestamp = timestampMs;
 
+    if (!video || video.readyState < 2 || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      return this.#lastFeatures ?? absentFace(0);
+    }
+
     if (this.#inFlight) return this.#lastFeatures ?? absentFace(0);
     if (this.#lastFeatures && this.#lastProcessedAt !== null && timestampMs - this.#lastProcessedAt < this.#intervalMs) {
       return this.#lastFeatures;
     }
 
     const task = Promise.resolve().then(() => {
-      const startedAt = this.dependencies.now();
-      const result = this.landmarker.detectForVideo(video, timestampMs);
-      const features = extractFeatures(result, this.dependencies.readBrightness(video));
-      const duration = this.dependencies.now() - startedAt;
-      this.#overruns = duration > this.#intervalMs ? this.#overruns + 1 : 0;
-      if (this.#overruns >= 3) this.#intervalMs = 1000 / MIN_INFERENCE_FPS;
-      this.#lastProcessedAt = timestampMs;
-      this.#lastFeatures = features;
-      return features;
+      try {
+        const startedAt = this.dependencies.now();
+        const result = this.landmarker.detectForVideo(video, timestampMs);
+        const features = extractFeatures(result, this.dependencies.readBrightness(video));
+        const duration = this.dependencies.now() - startedAt;
+        this.#overruns = duration > this.#intervalMs ? this.#overruns + 1 : 0;
+        if (this.#overruns >= 3) this.#intervalMs = 1000 / MIN_INFERENCE_FPS;
+        this.#lastProcessedAt = timestampMs;
+        this.#lastFeatures = features;
+        return features;
+      } catch (err) {
+        console.warn('[EyeTube] MediaPipe frame skipped safely:', err);
+        return this.#lastFeatures ?? absentFace(0);
+      }
     });
     this.#inFlight = task;
     try {
