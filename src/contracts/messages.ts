@@ -1,18 +1,18 @@
-import type { RuntimeStatus, StatusReason } from './status';
+import type { DetectionBlocker, MachineStateName, RuntimeStatus, StatusReason } from './status';
 
 export type Gesture =
   | 'WINK_LEFT'
   | 'WINK_RIGHT'
   | 'BOTH_CLOSED'
-  | 'GAZE_UP'
-  | 'GAZE_DOWN';
+  | 'GAZE_UP';
+
+export type Observation = Gesture | 'NO_FACE' | 'NEUTRAL' | 'UNCERTAIN';
 
 export type Command =
   | 'NEXT_VIDEO'
   | 'PREVIOUS_VIDEO'
   | 'TOGGLE_PLAYBACK'
-  | 'LIKE_VIDEO'
-  | 'SUBSCRIBE_CHANNEL';
+  | 'LIKE_VIDEO';
 
 export type PreviewDescription = {
   type: 'offer' | 'answer';
@@ -37,7 +37,26 @@ export type RuntimeMessage =
   | { version: 1; type: 'STATUS'; tabId: number; status: RuntimeStatus; reason?: StatusReason; detail?: string }
   | { version: 1; type: 'PREVIEW_OFFER'; tabId: number; description: PreviewDescription }
   | { version: 1; type: 'PREVIEW_ANSWER'; tabId: number; description: PreviewDescription }
-  | { version: 1; type: 'PREVIEW_CANDIDATE'; tabId: number; candidate: PreviewCandidate };
+  | { version: 1; type: 'PREVIEW_CANDIDATE'; tabId: number; candidate: PreviewCandidate }
+  | {
+      version: 1;
+      type: 'SETTINGS';
+      tabId: number;
+      navigationHoldMs: number;
+      playPauseHoldMs: number;
+      accountHoldMs: number;
+      cooldownMs: number;
+      enabledGestures: Record<Gesture, boolean>;
+    }
+  | {
+      version: 1;
+      type: 'DIAGNOSTIC';
+      tabId: number;
+      observation: Observation;
+      blocker: DetectionBlocker;
+      state: MachineStateName;
+      metrics: string;
+    };
 
 type PlainRecord = Record<string, unknown>;
 
@@ -46,7 +65,31 @@ const GESTURES = new Set<Gesture>([
   'WINK_RIGHT',
   'BOTH_CLOSED',
   'GAZE_UP',
-  'GAZE_DOWN',
+]);
+
+const OBSERVATIONS = new Set<Observation>([
+  ...GESTURES,
+  'NO_FACE',
+  'NEUTRAL',
+  'UNCERTAIN',
+]);
+
+const BLOCKERS = new Set<DetectionBlocker>([
+  'NONE',
+  'NO_FACE',
+  'LOW_CONFIDENCE',
+  'FACE_TOO_SMALL',
+  'TOO_DARK',
+  'EYES_UNCLEAR',
+  'HEAD_TURNED',
+  'HEAD_TILTED',
+]);
+
+const MACHINE_STATES = new Set<MachineStateName>([
+  'SEARCHING',
+  'READY',
+  'HOLDING',
+  'COOLDOWN',
 ]);
 
 const COMMANDS = new Set<Command>([
@@ -54,7 +97,6 @@ const COMMANDS = new Set<Command>([
   'PREVIOUS_VIDEO',
   'TOGGLE_PLAYBACK',
   'LIKE_VIDEO',
-  'SUBSCRIBE_CHANNEL',
 ]);
 
 const STATUSES = new Set<RuntimeStatus>([
@@ -91,6 +133,8 @@ const MESSAGE_KEYS: Record<string, ReadonlySet<string>> = {
   PREVIEW_OFFER: new Set(['version', 'type', 'tabId', 'description']),
   PREVIEW_ANSWER: new Set(['version', 'type', 'tabId', 'description']),
   PREVIEW_CANDIDATE: new Set(['version', 'type', 'tabId', 'candidate']),
+  DIAGNOSTIC: new Set(['version', 'type', 'tabId', 'observation', 'blocker', 'state', 'metrics']),
+  SETTINGS: new Set(['version', 'type', 'tabId', 'navigationHoldMs', 'playPauseHoldMs', 'accountHoldMs', 'cooldownMs', 'enabledGestures']),
 };
 
 function isPlainRecord(value: unknown): value is PlainRecord {
@@ -135,6 +179,15 @@ function isCandidate(value: unknown): value is PreviewCandidate {
     && (value.usernameFragment === undefined || isNullableShortString(value.usernameFragment, 256));
 }
 
+function isHoldDuration(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 60_000;
+}
+
+function isEnabledGestures(value: unknown): value is Record<Gesture, boolean> {
+  if (!isPlainRecord(value) || Object.keys(value).length !== GESTURES.size) return false;
+  return [...GESTURES].every((gesture) => typeof value[gesture] === 'boolean');
+}
+
 function validateByType(input: PlainRecord): boolean {
   switch (input.type) {
     case 'START_SESSION':
@@ -168,6 +221,21 @@ function validateByType(input: PlainRecord): boolean {
       return isDescription(input.description, 'answer');
     case 'PREVIEW_CANDIDATE':
       return isCandidate(input.candidate);
+    case 'SETTINGS':
+      return isHoldDuration(input.navigationHoldMs)
+        && isHoldDuration(input.playPauseHoldMs)
+        && isHoldDuration(input.accountHoldMs)
+        && isHoldDuration(input.cooldownMs)
+        && isEnabledGestures(input.enabledGestures);
+    case 'DIAGNOSTIC':
+      return typeof input.observation === 'string'
+        && OBSERVATIONS.has(input.observation as Observation)
+        && typeof input.blocker === 'string'
+        && BLOCKERS.has(input.blocker as DetectionBlocker)
+        && typeof input.state === 'string'
+        && MACHINE_STATES.has(input.state as MachineStateName)
+        && typeof input.metrics === 'string'
+        && input.metrics.length <= 200;
     default:
       return false;
   }

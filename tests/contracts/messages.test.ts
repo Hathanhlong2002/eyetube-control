@@ -115,3 +115,61 @@ describe('parseRuntimeMessage', () => {
     })).toBeNull();
   });
 });
+
+describe('parseRuntimeMessage diagnostics and settings', () => {
+  const diagnostic = {
+    version: 1 as const,
+    type: 'DIAGNOSTIC' as const,
+    tabId: 7,
+    observation: 'UNCERTAIN' as const,
+    blocker: 'FACE_TOO_SMALL' as const,
+    state: 'SEARCHING' as const,
+    metrics: 'size=0.010 light=0.40 L=0.02 R=0.03 gaze=0.00',
+  };
+
+  it('accepts a well formed diagnostic', () => {
+    expect(parseRuntimeMessage(diagnostic)).toEqual(diagnostic);
+  });
+
+  it.each([
+    { observation: 'SOMETHING' },
+    { blocker: 'SOMETHING' },
+    { state: 'PAUSED' },
+    { metrics: 'x'.repeat(201) },
+    { extra: true },
+  ])('rejects a diagnostic with %j', (override) => {
+    expect(parseRuntimeMessage({ ...diagnostic, ...override })).toBeNull();
+  });
+
+  const settings = {
+    version: 1 as const,
+    type: 'SETTINGS' as const,
+    tabId: 7,
+    navigationHoldMs: 400,
+    playPauseHoldMs: 700,
+    accountHoldMs: 1_200,
+    cooldownMs: 800,
+    enabledGestures: {
+      WINK_LEFT: true,
+      WINK_RIGHT: false,
+      BOTH_CLOSED: true,
+      GAZE_UP: true,
+    },
+  };
+
+  it('accepts well formed settings', () => {
+    expect(parseRuntimeMessage(settings)).toEqual(settings);
+  });
+
+  it.each([
+    { navigationHoldMs: -1 },
+    { accountHoldMs: Number.NaN },
+    { cooldownMs: 60_001 },
+    { enabledGestures: { WINK_LEFT: true } },
+    { playPauseHoldMs: -5 },
+    { enabledGestures: { ...settings.enabledGestures, EXTRA: true } },
+    { enabledGestures: { ...settings.enabledGestures, GAZE_UP: 'yes' } },
+  ])('rejects settings with %j', (override) => {
+    expect(parseRuntimeMessage({ ...settings, ...override })).toBeNull();
+  });
+});

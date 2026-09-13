@@ -11,6 +11,18 @@ export type RuntimeStatus =
   | 'WARNING'
   | 'ERROR';
 
+export type DetectionBlocker =
+  | 'NONE'
+  | 'NO_FACE'
+  | 'LOW_CONFIDENCE'
+  | 'FACE_TOO_SMALL'
+  | 'TOO_DARK'
+  | 'EYES_UNCLEAR'
+  | 'HEAD_TURNED'
+  | 'HEAD_TILTED';
+
+export type MachineStateName = 'SEARCHING' | 'READY' | 'HOLDING' | 'COOLDOWN';
+
 export type StatusReason =
   | 'CAMERA_DENIED'
   | 'CAMERA_UNAVAILABLE'
@@ -22,7 +34,7 @@ export type StatusReason =
 
 export type CommandResult =
   | { status: 'EXECUTED'; command: Command }
-  | { status: 'ALREADY_APPLIED'; command: 'LIKE_VIDEO' | 'SUBSCRIBE_CHANNEL' }
+  | { status: 'ALREADY_APPLIED'; command: 'LIKE_VIDEO' }
   | {
       status: 'UNAVAILABLE';
       command: Command;
