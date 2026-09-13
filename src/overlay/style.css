@@ -47,3 +47,118 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: -4px; }
 @media (prefers-reduced-motion: no-preference) {
   .eyetube-tile, .eyetube-pill { transition: border-color 180ms ease, box-shadow 180ms ease; }
 }
+
+/* AI Computer Vision Bounding Box HUD */
+.ai-hud-bounding-box {
+  position: absolute;
+  inset: 12% 16%;
+  border: 1.5px dashed rgba(34, 197, 94, 0.45);
+  border-radius: 12px;
+  pointer-events: none;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.15);
+}
+
+.ai-hud-bounding-box.is-active {
+  border-color: #38bdf8;
+  border-style: solid;
+  box-shadow: 0 0 24px rgba(56, 189, 248, 0.35);
+}
+
+.hud-corner {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 3px solid #22c55e;
+  transition: border-color 0.2s ease;
+}
+
+.ai-hud-bounding-box.is-active .hud-corner {
+  border-color: #38bdf8;
+}
+
+.hud-corner.top-left { top: -2px; left: -2px; border-right: 0; border-bottom: 0; border-top-left-radius: 8px; }
+.hud-corner.top-right { top: -2px; right: -2px; border-left: 0; border-bottom: 0; border-top-right-radius: 8px; }
+.hud-corner.bottom-left { bottom: -2px; left: -2px; border-right: 0; border-top: 0; border-bottom-left-radius: 8px; }
+.hud-corner.bottom-right { bottom: -2px; right: -2px; border-left: 0; border-top: 0; border-bottom-right-radius: 8px; }
+
+.hud-eye-marker {
+  position: absolute;
+  top: 30%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  transform: translate(-50%, -50%);
+}
+
+.hud-eye-marker.left { left: 32%; }
+.hud-eye-marker.right { left: 68%; }
+
+.marker-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid #22c55e;
+  background: rgba(34, 197, 94, 0.2);
+  box-shadow: 0 0 8px #22c55e;
+  transition: all 0.15s ease;
+}
+
+.hud-eye-marker.blink-active .marker-dot {
+  background: #38bdf8;
+  border-color: #ffffff;
+  transform: scale(1.4);
+  box-shadow: 0 0 16px #38bdf8;
+}
+
+.marker-label {
+  font-size: 8px;
+  font-weight: 800;
+  color: #86efac;
+  letter-spacing: 0.5px;
+  background: rgba(15, 23, 42, 0.7);
+  padding: 1px 3px;
+  border-radius: 3px;
+}
+
+.hud-eye-marker.blink-active .marker-label {
+  color: #7dd3fc;
+}
+
+.hud-tag {
+  position: absolute;
+  bottom: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #4ade80;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+}
+
+.ai-hud-bounding-box.is-active .hud-tag {
+  border-color: #38bdf8;
+  color: #7dd3fc;
+}
+
+.hud-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+}
+
+.ai-hud-bounding-box.is-active .hud-status-dot {
+  background: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+}

@@ -49,7 +49,10 @@ describe('FaceLandmarkerAdapter', () => {
     expect(deps.create).toHaveBeenCalledWith(
       'chrome-extension://id/wasm',
       expect.objectContaining({
-        baseOptions: { modelAssetPath: 'chrome-extension://id/models/face_landmarker.task' },
+        baseOptions: {
+          modelAssetPath: 'chrome-extension://id/models/face_landmarker.task',
+          delegate: 'CPU',
+        },
         runningMode: 'VIDEO',
         numFaces: 1,
         outputFaceBlendshapes: true,

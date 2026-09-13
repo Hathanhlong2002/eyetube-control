@@ -192,7 +192,10 @@ export async function createFaceLandmarkerAdapter(
   const wasmRoot = resolved.getUrl('wasm');
   const modelAssetPath = resolved.getUrl('models/face_landmarker.task');
   const landmarker = await resolved.create(wasmRoot, {
-    baseOptions: { modelAssetPath },
+    baseOptions: {
+      modelAssetPath,
+      delegate: 'CPU',
+    },
     runningMode: 'VIDEO',
     numFaces: 1,
     outputFaceBlendshapes: true,

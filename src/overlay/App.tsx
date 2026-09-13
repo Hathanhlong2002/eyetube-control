@@ -141,6 +141,31 @@ export function EyeControlOverlay(props: EyeControlOverlayProps) {
       onPointerUp={() => { drag.current = null; }}
     >
       <video ref={video} autoPlay muted playsInline aria-label="Mirrored camera preview" />
+
+      {/* Computer Vision AI Bounding Box HUD */}
+      {(props.status === 'READY' || props.status === 'HOLDING' || props.status === 'COMMAND_COMPLETED') && (
+        <div className={`ai-hud-bounding-box ${props.gesture ? 'is-active' : ''}`} aria-hidden="true">
+          <div className="hud-corner top-left" />
+          <div className="hud-corner top-right" />
+          <div className="hud-corner bottom-left" />
+          <div className="hud-corner bottom-right" />
+
+          <div className={`hud-eye-marker left ${props.gesture === 'WINK_LEFT' ? 'blink-active' : ''}`}>
+            <span className="marker-dot" />
+            <span className="marker-label">L-EYE</span>
+          </div>
+          <div className={`hud-eye-marker right ${props.gesture === 'WINK_RIGHT' ? 'blink-active' : ''}`}>
+            <span className="marker-dot" />
+            <span className="marker-label">R-EYE</span>
+          </div>
+
+          <div className="hud-tag">
+            <span className="hud-status-dot" />
+            <span>{props.gesture ? `👁 ${GESTURE_ACTION[props.gesture]}` : 'AI TRACKING'}</span>
+          </div>
+        </div>
+      )}
+
       {props.gesture && props.progress !== undefined && <div
         className="eyetube-progress"
         role="progressbar"
