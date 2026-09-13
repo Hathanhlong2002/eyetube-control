@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   countExtendedFingers,
   extractHandFeatures,
+  isFullyInFrame,
   type HandPoint,
 } from '../../src/media/hand-landmarker';
 
@@ -66,13 +67,40 @@ describe('countExtendedFingers', () => {
   });
 });
 
+describe('isFullyInFrame', () => {
+  it('accepts a hand held well inside the frame', () => {
+    expect(isFullyInFrame(hand(['index']))).toBe(true);
+  });
+
+  it.each([
+    ['left', (p: HandPoint) => ({ ...p, x: p.x - 0.5 })],
+    ['right', (p: HandPoint) => ({ ...p, x: p.x + 0.5 })],
+    ['top', (p: HandPoint) => ({ ...p, y: p.y - 0.9 })],
+    ['bottom', (p: HandPoint) => ({ ...p, y: p.y + 0.1 })],
+  ])('rejects a hand clipped by the %s edge', (_edge, move) => {
+    expect(isFullyInFrame(hand(['index']).map(move))).toBe(false);
+  });
+
+  it('rejects a truncated landmark set', () => {
+    expect(isFullyInFrame(hand(['index']).slice(0, 10))).toBe(false);
+  });
+});
+
 describe('extractHandFeatures', () => {
   it('reports no hand when the model returns nothing', () => {
-    expect(extractHandFeatures({ landmarks: [] })).toEqual({ handDetected: false, fingerCount: 0 });
+    expect(extractHandFeatures({ landmarks: [] }))
+      .toEqual({ handDetected: false, fingerCount: 0, fullyInFrame: false });
   });
 
   it('reads the first hand the model returns', () => {
     expect(extractHandFeatures({ landmarks: [hand(['index', 'middle'])] }))
-      .toEqual({ handDetected: true, fingerCount: 2 });
+      .toEqual({ handDetected: true, fingerCount: 2, fullyInFrame: true });
+  });
+
+  it('marks a hand the frame edge cuts off, which is how a stray hand appears', () => {
+    const straying = hand(['index', 'middle']).map((point) => ({ ...point, x: point.x - 0.48 }));
+    const features = extractHandFeatures({ landmarks: [straying] });
+    expect(features.handDetected).toBe(true);
+    expect(features.fullyInFrame).toBe(false);
   });
 });

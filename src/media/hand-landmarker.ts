@@ -6,7 +6,16 @@ export type HandFeatures = {
   handDetected: boolean;
   /** Extended fingers, 0-5. Zero means a fist or an unreadable hand. */
   fingerCount: number;
+  /**
+   * False when the frame edge cuts the hand off. A hand that wandered into
+   * shot accidentally is almost always clipped at an edge, while a hand held
+   * up on purpose sits well inside the frame.
+   */
+  fullyInFrame: boolean;
 };
+
+/** How far from each edge a hand must stay to count as deliberate. */
+export const FRAME_MARGIN = 0.05;
 
 export type HandLandmarkerResultLike = {
   landmarks: HandPoint[][];
@@ -37,7 +46,7 @@ const PINKY_MCP = 17;
 const FINGER_PIPS = [6, 10, 14, 18] as const;
 const FINGER_TIPS = [8, 12, 16, 20] as const;
 
-const NO_HAND: HandFeatures = { handDetected: false, fingerCount: 0 };
+const NO_HAND: HandFeatures = { handDetected: false, fingerCount: 0, fullyInFrame: false };
 
 function distance(a: HandPoint | undefined, b: HandPoint | undefined): number {
   if (!a || !b || !Number.isFinite(a.x) || !Number.isFinite(a.y)
@@ -74,10 +83,21 @@ export function countExtendedFingers(landmarks: readonly HandPoint[]): number {
   return count;
 }
 
+export function isFullyInFrame(landmarks: readonly HandPoint[], margin = FRAME_MARGIN): boolean {
+  if (landmarks.length < 21) return false;
+  return landmarks.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)
+    && point.x >= margin && point.x <= 1 - margin
+    && point.y >= margin && point.y <= 1 - margin);
+}
+
 export function extractHandFeatures(result: HandLandmarkerResultLike): HandFeatures {
   const landmarks = result.landmarks?.[0];
   if (!landmarks?.length) return NO_HAND;
-  return { handDetected: true, fingerCount: countExtendedFingers(landmarks) };
+  return {
+    handDetected: true,
+    fingerCount: countExtendedFingers(landmarks),
+    fullyInFrame: isFullyInFrame(landmarks),
+  };
 }
 
 const DEFAULT_DEPENDENCIES: HandLandmarkerDependencies = {
