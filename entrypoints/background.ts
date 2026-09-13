@@ -51,7 +51,7 @@ export default defineBackground(() => {
   async function isEligibleTab(tabId: number): Promise<boolean> {
     try {
       const tab = await chrome.tabs.get(tabId);
-      return Boolean(tab.url && tab.url.startsWith('https://www.youtube.com/'));
+      return Boolean(tab.url && /^https?:\/\/(www\.)?youtube\.com\//.test(tab.url));
     } catch {
       return false;
     }
@@ -73,7 +73,7 @@ export default defineBackground(() => {
   };
 
   chrome.action.onClicked.addListener((tab) => {
-    if (tab.id === undefined || !tab.url?.startsWith('https://www.youtube.com/')) return;
+    if (tab.id === undefined || !tab.url || !/^https?:\/\/(www\.)?youtube\.com\//.test(tab.url)) return;
     const tabId = tab.id;
     const isStopping = coordinator.activeTabId === tabId;
     const operation = coordinator.handle(

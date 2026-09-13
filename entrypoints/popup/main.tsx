@@ -14,6 +14,11 @@ import './style.css';
 const SETTINGS_STORAGE_KEY = 'eyetube_settings';
 const SESSION_STORAGE_KEY = 'eyetube_session';
 
+function isYouTubeUrl(url: string | undefined): boolean {
+  if (!url) return false;
+  return /^https?:\/\/(www\.)?youtube\.com\//.test(url);
+}
+
 const Root: React.FC = () => {
   const [activeTab, setActiveTab] = useState<chrome.tabs.Tab | null>(null);
   const [status, setStatus] = useState<RuntimeStatus>('OFF');
@@ -24,13 +29,16 @@ const Root: React.FC = () => {
   useEffect(() => {
     async function init() {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id && tab.url?.startsWith('https://www.youtube.com/')) {
+      if (tab?.id && isYouTubeUrl(tab.url)) {
         setActiveTab(tab);
         const sessionRes = await chrome.storage.session?.get(SESSION_STORAGE_KEY);
         const metadata = sessionRes?.[SESSION_STORAGE_KEY] as { activeTabId?: number | null } | undefined;
         if (metadata?.activeTabId === tab.id) {
           setStatus('READY');
         }
+      } else {
+        setStatus('WARNING');
+        setStatusReason('YOUTUBE_COMMAND_UNAVAILABLE');
       }
 
       const storedSettings = await chrome.storage.local.get(SETTINGS_STORAGE_KEY);
@@ -57,6 +65,8 @@ const Root: React.FC = () => {
         setStatus(msg.status as RuntimeStatus);
         if (typeof msg.reason === 'string') {
           setStatusReason(msg.reason as StatusReason);
+        } else {
+          setStatusReason(undefined);
         }
       }
     };
@@ -68,12 +78,42 @@ const Root: React.FC = () => {
   }, []);
 
   const handleStart = async (deviceId?: string) => {
-    if (!activeTab?.id) return;
+    let target = activeTab;
+    if (!target?.id) {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id && isYouTubeUrl(tab.url)) {
+        target = tab;
+        setActiveTab(tab);
+      }
+    }
+
+    if (!target?.id) {
+      setStatus('WARNING');
+      setStatusReason('YOUTUBE_COMMAND_UNAVAILABLE');
+      return;
+    }
+
     setStatus('REQUESTING_PERMISSION');
+
+    // Prompt user for camera permission directly in the popup extension context
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: deviceId ? { deviceId: { exact: deviceId } } : true,
+          audio: false,
+        });
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    } catch {
+      setStatus('ERROR');
+      setStatusReason('CAMERA_DENIED');
+      return;
+    }
+
     await chrome.runtime.sendMessage({
       version: 1,
       type: 'START_SESSION',
-      tabId: activeTab.id,
+      tabId: target.id,
     } satisfies RuntimeMessage);
   };
 

@@ -47,7 +47,7 @@ function statusLabel(status: RuntimeStatus, reason?: StatusReason): string {
       return 'Command executed';
     case 'WARNING':
       return reason === 'YOUTUBE_COMMAND_UNAVAILABLE'
-        ? 'Action currently unavailable on this page'
+        ? 'Please open a YouTube video tab'
         : 'Warning: Detection uncertain';
     case 'ERROR':
       if (reason === 'CAMERA_DENIED') return 'Camera permission was denied';
@@ -72,7 +72,12 @@ export const PopupApp: React.FC<PopupAppProps> = ({
   onResetGeometry,
 }) => {
   const [currentDeviceId, setCurrentDeviceId] = useState<string | undefined>(selectedDeviceId);
-  const isRunning = status !== 'OFF' && status !== 'ERROR';
+  const isRunning = status === 'READY'
+    || status === 'HOLDING'
+    || status === 'COMMAND_COMPLETED'
+    || status === 'CALIBRATING'
+    || status === 'SEARCHING'
+    || status === 'REQUESTING_PERMISSION';
 
   const handleToggleGesture = (gesture: Gesture, enabled: boolean) => {
     onSettingsChange({

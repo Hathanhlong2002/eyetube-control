@@ -15,7 +15,7 @@ function isTileGeometry(value: unknown): value is TileGeometry {
 }
 
 export default defineContentScript({
-  matches: ['https://www.youtube.com/*'],
+  matches: ['*://*.youtube.com/*'],
   main(ctx) {
     let activeTabId: number | null = null;
     let receiver: PreviewReceiver | null = null;
