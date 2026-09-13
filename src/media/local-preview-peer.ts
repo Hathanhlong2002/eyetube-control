@@ -81,9 +81,15 @@ export function createPreviewSender(
       return serializeDescription(offer);
     },
     async acceptAnswer(answer) {
+      if (peer.signalingState === 'stable' || peer.signalingState === 'closed') {
+        return;
+      }
       await peer.setRemoteDescription(answer);
     },
     addRemoteCandidate(candidate) {
+      if (peer.signalingState === 'closed') {
+        return Promise.resolve(false);
+      }
       return addHostCandidate(peer, candidate);
     },
     onCandidate(callback) {

@@ -131,6 +131,7 @@ export default defineContentScript({
         if (hasOffer) void receiver.addRemoteCandidate(message.candidate);
         else pendingCandidates.push(message.candidate);
       } else if (message.type === 'STATUS') {
+        console.log('[EyeTube Content] STATUS received:', message.status, message.reason, message.detail);
         activeTabId = message.tabId;
         ensureOverlay().update({
           status: message.status,

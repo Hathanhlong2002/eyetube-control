@@ -9,7 +9,7 @@ const DEFAULT_ENVIRONMENT: NavigationEnvironment = {
   window,
   document,
   MutationObserver,
-  queueMicrotask,
+  queueMicrotask: (callback) => window.queueMicrotask(callback),
 };
 
 export function observeYouTubeNavigation(

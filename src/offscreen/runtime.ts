@@ -37,6 +37,7 @@ export class OffscreenRuntime {
   #frameHandle: number | null = null;
   #isVisible = true;
   #isDetecting = false;
+  #isAcceptingAnswer = false;
 
   constructor(private readonly dependencies: OffscreenRuntimeDependencies) {}
 
@@ -52,6 +53,7 @@ export class OffscreenRuntime {
     try {
       const stream = await this.dependencies.camera.start(config.deviceId);
       this.dependencies.video.srcObject = stream;
+      void this.dependencies.video.play?.().catch?.(() => {});
       this.#sender = this.dependencies.createPreviewSender(stream);
       this.#sender.onCandidate((candidate) => {
         if (this.#activeTabId !== null) {
@@ -83,14 +85,22 @@ export class OffscreenRuntime {
   }
 
   async acceptPreviewAnswer(description: PreviewDescription): Promise<void> {
-    if (!this.#sender || this.#activeTabId === null) return;
+    if (!this.#sender || this.#activeTabId === null || this.#model !== null || this.#isAcceptingAnswer) return;
+    this.#isAcceptingAnswer = true;
     const tabId = this.#activeTabId;
     try {
       await this.#sender.acceptAnswer(description);
       this.#model = await this.dependencies.createFaceLandmarker();
       this.dependencies.machine.reset();
+      this.dependencies.send({
+        version: 1,
+        type: 'STATUS',
+        tabId,
+        status: 'READY',
+      });
       this.#scheduleInference();
-    } catch {
+    } catch (error) {
+      console.error('[EyeTube Offscreen] Error in acceptPreviewAnswer:', error);
       this.stop();
       this.dependencies.send({
         version: 1,
@@ -99,6 +109,8 @@ export class OffscreenRuntime {
         status: 'ERROR',
         reason: 'MODEL_LOAD_FAILED',
       });
+    } finally {
+      this.#isAcceptingAnswer = false;
     }
   }
 
@@ -181,5 +193,6 @@ export class OffscreenRuntime {
     this.dependencies.camera.stop();
     this.dependencies.video.srcObject = null;
     this.#activeTabId = null;
+    this.#isAcceptingAnswer = false;
   }
 }

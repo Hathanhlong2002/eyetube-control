@@ -29,14 +29,14 @@ export type CalibrationProfile = {
 
 export const DEFAULT_CALIBRATION_PROFILE: CalibrationProfile = {
   version: 1,
-  closedThreshold: 0.65,
-  openThreshold: 0.25,
+  closedThreshold: 0.60,
+  openThreshold: 0.35,
   gazeUpThreshold: 0.2,
   gazeDownThreshold: -0.2,
   confidenceFloor: 0.7,
-  faceSizeFloor: 0.12,
-  brightnessFloor: 0.2,
-  eyeVisibilityFloor: 0.65,
+  faceSizeFloor: 0.07,
+  brightnessFloor: 0.12,
+  eyeVisibilityFloor: 0.5,
   maxAbsYaw: 0.45,
   maxAbsPitch: 0.35,
 };

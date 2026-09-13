@@ -186,7 +186,7 @@ export function mountOverlay(options: {
   const targetDocument = options.document ?? document;
   const host = targetDocument.createElement('div');
   host.dataset.eyetubeControl = 'preview';
-  const shadow = host.attachShadow({ mode: 'closed' });
+  const shadow = host.attachShadow({ mode: 'open' });
   const style = targetDocument.createElement('style');
   style.textContent = styles;
   const container = targetDocument.createElement('div');

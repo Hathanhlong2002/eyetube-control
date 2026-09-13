@@ -34,7 +34,7 @@ export type RuntimeMessage =
   | { version: 1; type: 'GESTURE_PROGRESS'; tabId: number; gesture: Gesture; progress: number }
   | { version: 1; type: 'GESTURE_CANCELLED'; tabId: number }
   | { version: 1; type: 'COMMAND'; tabId: number; command: Command; commandId: string }
-  | { version: 1; type: 'STATUS'; tabId: number; status: RuntimeStatus; reason?: StatusReason }
+  | { version: 1; type: 'STATUS'; tabId: number; status: RuntimeStatus; reason?: StatusReason; detail?: string }
   | { version: 1; type: 'PREVIEW_OFFER'; tabId: number; description: PreviewDescription }
   | { version: 1; type: 'PREVIEW_ANSWER'; tabId: number; description: PreviewDescription }
   | { version: 1; type: 'PREVIEW_CANDIDATE'; tabId: number; candidate: PreviewCandidate };
@@ -87,7 +87,7 @@ const MESSAGE_KEYS: Record<string, ReadonlySet<string>> = {
   GESTURE_PROGRESS: new Set(['version', 'type', 'tabId', 'gesture', 'progress']),
   GESTURE_CANCELLED: new Set(['version', 'type', 'tabId']),
   COMMAND: new Set(['version', 'type', 'tabId', 'command', 'commandId']),
-  STATUS: new Set(['version', 'type', 'tabId', 'status', 'reason']),
+  STATUS: new Set(['version', 'type', 'tabId', 'status', 'reason', 'detail']),
   PREVIEW_OFFER: new Set(['version', 'type', 'tabId', 'description']),
   PREVIEW_ANSWER: new Set(['version', 'type', 'tabId', 'description']),
   PREVIEW_CANDIDATE: new Set(['version', 'type', 'tabId', 'candidate']),
@@ -160,7 +160,8 @@ function validateByType(input: PlainRecord): boolean {
       return typeof input.status === 'string'
         && STATUSES.has(input.status as RuntimeStatus)
         && (input.reason === undefined
-          || (typeof input.reason === 'string' && STATUS_REASONS.has(input.reason as StatusReason)));
+          || (typeof input.reason === 'string' && STATUS_REASONS.has(input.reason as StatusReason)))
+        && (input.detail === undefined || typeof input.detail === 'string');
     case 'PREVIEW_OFFER':
       return isDescription(input.description, 'offer');
     case 'PREVIEW_ANSWER':
