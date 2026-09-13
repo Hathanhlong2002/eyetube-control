@@ -175,7 +175,22 @@ export default defineContentScript({
         if (hasOffer) void receiver.addRemoteCandidate(message.candidate);
         else pendingCandidates.push(message.candidate);
       } else if (message.type === 'STATUS') {
-        console.log('[EyeTube Content] STATUS received:', message.status, message.reason, message.detail);
+        if (message.status === 'READY') {
+          console.log(
+            '%c[EyeTube AI] ✅ MODEL ĐÃ LOAD THÀNH CÔNG! Trạng thái: READY (Đang nhận diện mắt)',
+            'color: #00e676; font-size: 13px; font-weight: bold;'
+          );
+        } else if (message.status === 'ERROR') {
+          console.error(
+            `%c[EyeTube AI] ❌ LỖI: ${message.reason ?? 'UNKNOWN'}${message.detail ? ` - ${message.detail}` : ''}`,
+            'color: #ff1744; font-size: 13px; font-weight: bold;'
+          );
+        } else {
+          console.log(
+            `%c[EyeTube AI] ℹ️ Trạng thái: ${message.status}${message.reason ? ` (${message.reason})` : ''}`,
+            'color: #00bcd4; font-weight: bold;'
+          );
+        }
         activeTabId = message.tabId;
         ensureOverlay().update({
           status: message.status,
@@ -185,6 +200,12 @@ export default defineContentScript({
           completedCommand: undefined,
         });
       } else if (message.type === 'GESTURE_PROGRESS' && message.tabId === activeTabId) {
+        console.log(
+          `%c[EyeTube AI] 👁️ Phát hiện cử chỉ: %c${message.gesture}%c (giữ ${(message.progress * 100).toFixed(0)}%)`,
+          'color: #00bcd4; font-weight: bold;',
+          'color: #ffeb3b; font-weight: bold; background: #222; padding: 1px 4px; border-radius: 2px;',
+          'color: #aaa;'
+        );
         ensureOverlay().update({
           status: 'HOLDING',
           reason: undefined,
@@ -193,6 +214,7 @@ export default defineContentScript({
           completedCommand: undefined,
         });
       } else if (message.type === 'GESTURE_CANCELLED' && message.tabId === activeTabId) {
+        console.log('%c[EyeTube AI] ↩️ Huỷ cử chỉ (mắt đã mở lại hoặc đổi hướng nhìn)', 'color: #888; font-style: italic;');
         ensureOverlay().update({
           status: 'READY',
           gesture: undefined,

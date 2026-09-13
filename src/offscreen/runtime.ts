@@ -38,6 +38,7 @@ export class OffscreenRuntime {
   #isVisible = true;
   #isDetecting = false;
   #isAcceptingAnswer = false;
+  #lastStatsSentAt = 0;
 
   constructor(private readonly dependencies: OffscreenRuntimeDependencies) {}
 
@@ -152,9 +153,19 @@ export class OffscreenRuntime {
     try {
       const features = await this.#model.detect(this.dependencies.video, time);
       const observation = this.dependencies.classifier(features);
-      if (features.faceDetected && (observation !== 'NEUTRAL' || features.leftEyeClosed > 0.4 || features.rightEyeClosed > 0.4)) {
-        console.log(`[EyeTube CV] obs=${observation} L=${features.leftEyeClosed.toFixed(2)} R=${features.rightEyeClosed.toFixed(2)}`);
+
+      if (features.faceDetected) {
+        if (time - this.#lastStatsSentAt >= 1000 || observation !== 'NEUTRAL' || features.leftEyeClosed > 0.35 || features.rightEyeClosed > 0.35) {
+          this.#lastStatsSentAt = time;
+          console.log(`[EyeTube CV] 👁️ Mặt: OK | L=${features.leftEyeClosed.toFixed(2)} R=${features.rightEyeClosed.toFixed(2)} | Cử chỉ: ${observation}`);
+        }
+      } else {
+        if (time - this.#lastStatsSentAt >= 2000) {
+          this.#lastStatsSentAt = time;
+          console.log('[EyeTube CV] 🔍 Chưa tìm thấy khuôn mặt trong camera');
+        }
       }
+
       const events = this.dependencies.machine.update(observation, time);
       for (const event of events) {
         if (event.type === 'PROGRESS') {

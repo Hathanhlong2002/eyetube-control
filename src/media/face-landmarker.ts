@@ -200,6 +200,8 @@ export async function createFaceLandmarkerAdapter(
   const resolved = { ...DEFAULT_DEPENDENCIES, ...dependencies };
   const wasmRoot = resolved.getUrl('wasm');
   const modelAssetPath = resolved.getUrl('models/face_landmarker.task');
+  console.log('[EyeTube AI] ⏳ Bắt đầu tải mô hình MediaPipe FaceLandmarker từ:', modelAssetPath);
+  const startTime = performance.now();
   const landmarker = await resolved.create(wasmRoot, {
     baseOptions: {
       modelAssetPath,
@@ -209,5 +211,7 @@ export async function createFaceLandmarkerAdapter(
     numFaces: 1,
     outputFaceBlendshapes: true,
   });
+  const loadDuration = (performance.now() - startTime).toFixed(0);
+  console.log(`[EyeTube AI] ✅ Tải mô hình FaceLandmarker thành công trong ${loadDuration}ms (CPU XNNPACK delegate)`);
   return new LocalFaceLandmarkerAdapter(landmarker, resolved);
 }
