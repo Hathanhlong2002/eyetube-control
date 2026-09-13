@@ -25,7 +25,11 @@ const runtime = new OffscreenRuntime({
   cancelFrame: (handle: number) => cancelAnimationFrame(handle),
 });
 
-chrome.runtime.onMessage.addListener((input: unknown) => {
+chrome.runtime.onMessage.addListener((input: unknown, _sender, sendResponse) => {
+  if (typeof input === 'object' && input !== null && (input as Record<string, unknown>).type === 'OFFSCREEN_PING') {
+    sendResponse({ type: 'OFFSCREEN_PONG' });
+    return true;
+  }
   const message = parseRuntimeMessage(input);
   if (!message) return;
 

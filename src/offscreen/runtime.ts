@@ -72,14 +72,16 @@ export class OffscreenRuntime {
         tabId: config.tabId,
         description,
       });
-    } catch {
+    } catch (error) {
       this.stop();
+      const isDenied = (error as Error)?.name === 'NotAllowedError'
+        || (error as Error)?.name === 'PermissionDeniedError';
       this.dependencies.send({
         version: 1,
         type: 'STATUS',
         tabId: config.tabId,
         status: 'ERROR',
-        reason: 'PREVIEW_FAILED',
+        reason: isDenied ? 'CAMERA_DENIED' : 'PREVIEW_FAILED',
       });
     }
   }

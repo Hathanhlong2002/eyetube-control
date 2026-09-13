@@ -104,13 +104,14 @@ const Root: React.FC = () => {
       isGranted = false;
     }
 
-    if (isGranted) {
+    if (isGranted && statusReason !== 'CAMERA_DENIED') {
       setStatus('REQUESTING_PERMISSION');
       await chrome.runtime.sendMessage({
         version: 1,
         type: 'START_SESSION',
         tabId: target.id,
       } satisfies RuntimeMessage);
+      setTimeout(() => window.close(), 300);
     } else {
       // Open dedicated tab to reliably show the Chrome permission prompt
       const permissionUrl = chrome.runtime.getURL(`permission.html?tabId=${target.id}`);

@@ -22,6 +22,7 @@ async function requestPermission() {
     const tabId = Number(params.get('tabId'));
 
     if (Number.isInteger(tabId) && tabId > 0) {
+      await chrome.tabs.update(tabId, { active: true });
       await chrome.runtime.sendMessage({
         version: 1,
         type: 'START_SESSION',

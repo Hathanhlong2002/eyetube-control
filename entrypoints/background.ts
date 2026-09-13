@@ -16,11 +16,22 @@ export default defineBackground(() => {
 
   async function ensureOffscreen(): Promise<void> {
     if (await hasOffscreenDocument()) return;
-    creatingOffscreen ??= chrome.offscreen.createDocument({
-      url: 'offscreen.html',
-      reasons: [chrome.offscreen.Reason.USER_MEDIA, chrome.offscreen.Reason.WEB_RTC],
-      justification: 'Process eye gestures locally and show the active camera preview.',
-    }).finally(() => {
+    creatingOffscreen ??= (async () => {
+      await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: [chrome.offscreen.Reason.USER_MEDIA, chrome.offscreen.Reason.WEB_RTC],
+        justification: 'Process eye gestures locally and show the active camera preview.',
+      });
+      for (let attempt = 0; attempt < 50; attempt++) {
+        try {
+          const res = await chrome.runtime.sendMessage({ type: 'OFFSCREEN_PING' });
+          if (res?.type === 'OFFSCREEN_PONG') break;
+        } catch {
+          // Offscreen still evaluating
+        }
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      }
+    })().finally(() => {
       creatingOffscreen = null;
     });
     await creatingOffscreen;
