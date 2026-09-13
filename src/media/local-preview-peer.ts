@@ -22,6 +22,32 @@ export interface PreviewReceiver {
 
 const defaultFactory: PeerConnectionFactory = (configuration) => new RTCPeerConnection(configuration);
 
+/**
+ * The preview tile is a few hundred CSS pixels, so encoding the full camera
+ * resolution at full rate would burn CPU that nobody can see. Inference still
+ * runs on the untouched stream; only the preview copy is scaled down.
+ */
+const PREVIEW_SCALE_DOWN_BY = 2;
+const PREVIEW_MAX_FRAMERATE = 15;
+
+async function capPreviewEncoding(sender: RTCRtpSender | undefined): Promise<void> {
+  if (!sender?.getParameters || !sender.setParameters) return;
+  try {
+    const parameters = sender.getParameters();
+    const encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+    await sender.setParameters({
+      ...parameters,
+      encodings: encodings.map((encoding) => ({
+        ...encoding,
+        scaleResolutionDownBy: PREVIEW_SCALE_DOWN_BY,
+        maxFramerate: PREVIEW_MAX_FRAMERATE,
+      })),
+    });
+  } catch {
+    // Older Chrome builds reject per-encoding limits; the preview still works.
+  }
+}
+
 function serializeDescription(description: RTCSessionDescriptionInit): SerializableDescription {
   if ((description.type !== 'offer' && description.type !== 'answer') || description.sdp === undefined) {
     throw new Error('Preview SDP must be a complete offer or answer');
@@ -71,7 +97,7 @@ export function createPreviewSender(
 ): PreviewSender {
   const peer = factory({ iceServers: [] });
   for (const track of stream.getVideoTracks()) {
-    peer.addTrack(track, stream);
+    void capPreviewEncoding(peer.addTrack(track, stream));
   }
 
   return {
