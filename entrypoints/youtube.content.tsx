@@ -29,29 +29,48 @@ export default defineContentScript({
       controller = createYouTubeController(document);
     });
 
+    function safeSendMessage(message: RuntimeMessage): void {
+      try {
+        if (!chrome.runtime?.id) return;
+        void chrome.runtime.sendMessage(message).catch(() => {});
+      } catch {
+        // Extension context invalidated
+      }
+    }
+
     function ensureOverlay(): OverlayHandle {
       if (overlay) return overlay;
       overlay = mountOverlay({
         onStop: () => {
-          if (activeTabId !== null) void chrome.runtime.sendMessage({
+          if (activeTabId !== null) safeSendMessage({
             version: 1,
             type: 'STOP_SESSION',
             tabId: activeTabId,
-          } satisfies RuntimeMessage);
+          });
         },
         onGeometryChange: (geometry) => {
-          void chrome.storage.local.set({ [GEOMETRY_KEY]: geometry });
+          try {
+            if (chrome.runtime?.id) void chrome.storage.local.set({ [GEOMETRY_KEY]: geometry }).catch(() => {});
+          } catch {
+            // Extension context invalidated
+          }
         },
       });
-      void chrome.storage.local.get(GEOMETRY_KEY).then((stored) => {
-        if (!overlay || !isTileGeometry(stored[GEOMETRY_KEY])) return;
-        overlay.update({
-          geometry: clampTileGeometry(stored[GEOMETRY_KEY], {
-            width: window.innerWidth,
-            height: window.innerHeight,
-          }),
-        });
-      });
+      try {
+        if (chrome.runtime?.id) {
+          void chrome.storage.local.get(GEOMETRY_KEY).then((stored) => {
+            if (!overlay || !isTileGeometry(stored[GEOMETRY_KEY])) return;
+            overlay.update({
+              geometry: clampTileGeometry(stored[GEOMETRY_KEY], {
+                width: window.innerWidth,
+                height: window.innerHeight,
+              }),
+            });
+          }).catch(() => {});
+        }
+      } catch {
+        // Storage unavailable
+      }
       return overlay;
     }
 
@@ -76,22 +95,22 @@ export default defineContentScript({
       activeTabId = message.tabId;
       const tile = ensureOverlay();
       receiver = createPreviewReceiver((stream) => tile.update({ preview: stream }));
-      receiver.onCandidate((candidate) => void chrome.runtime.sendMessage({
+      receiver.onCandidate((candidate) => safeSendMessage({
         version: 1,
         type: 'PREVIEW_CANDIDATE',
         tabId: message.tabId,
         candidate,
-      } satisfies RuntimeMessage));
+      }));
       const description = await receiver.acceptOfferAndCreateAnswer(message.description);
       hasOffer = true;
       for (const candidate of pendingCandidates) await receiver.addRemoteCandidate(candidate);
       pendingCandidates = [];
-      await chrome.runtime.sendMessage({
+      safeSendMessage({
         version: 1,
         type: 'PREVIEW_ANSWER',
         tabId: message.tabId,
         description,
-      } satisfies RuntimeMessage);
+      });
     }
 
     async function executeCommand(message: Extract<RuntimeMessage, { type: 'COMMAND' }>): Promise<void> {
@@ -168,12 +187,12 @@ export default defineContentScript({
 
     const handleVisibilityChange = () => {
       if (activeTabId !== null) {
-        void chrome.runtime.sendMessage({
+        safeSendMessage({
           version: 1,
           type: 'SESSION_VISIBILITY',
           tabId: activeTabId,
           visible: !document.hidden,
-        } satisfies RuntimeMessage);
+        });
       }
     };
 
